@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 
+import { CopyResult } from "@/components/copy-result";
 import { TargetInput } from "@/components/target-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { milliseconds } from "@/lib/format";
 import { portPresets, type PortOutcome, type PortPreset, type PortReport } from "@/lib/toolbox";
-import { useAppStore, type PortCheckRun } from "@/store";
+import { usePortCheck, type PortCheckRun } from "@/store";
 
 export function PortCheck() {
-  const { target, ports, family, error, run } = useAppStore((state) => state.portCheck);
-  const update = useAppStore((state) => state.updatePortCheck);
-  const start = useAppStore((state) => state.startPortCheck);
-  const stop = useAppStore((state) => state.stopPortCheck);
+  const { input, error, run, update, start, stop } = usePortCheck();
+  const { target, ports, family } = input;
   const presets = usePortPresets();
   const running = run !== null && run.result === null;
 
@@ -130,7 +130,7 @@ function PortTable({ ports }: { ports: PortReport[] }) {
             <td className="px-3 py-1.5">
               <OutcomeBadge outcome={report.outcome} />
             </td>
-            <td className="px-3 py-1.5 font-mono">{connectTime(report.connectTimeMs)}</td>
+            <td className="px-3 py-1.5 font-mono">{milliseconds(report.connectTimeMs)}</td>
           </tr>
         ))}
       </tbody>
@@ -150,28 +150,5 @@ function OutcomeBadge({ outcome }: { outcome: PortOutcome }) {
     <Badge variant={variant} title={hint}>
       {label}
     </Badge>
-  );
-}
-
-function connectTime(milliseconds: number | null) {
-  if (milliseconds === null) return "-";
-  return milliseconds < 1 ? "<1 ms" : `${Math.round(milliseconds)} ms`;
-}
-
-function CopyResult({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      onClick={() =>
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        })
-      }
-    >
-      {copied ? "Copied" : "Copy as text"}
-    </Button>
   );
 }

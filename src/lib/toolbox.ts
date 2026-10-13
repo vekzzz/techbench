@@ -63,6 +63,59 @@ export function portPresets(): Promise<PortPreset[]> {
   return invoke("port_presets");
 }
 
+export type EchoStatus = "reply" | "timedOut" | "unreachable" | "fragmentationNeeded";
+
+export type EchoReport = {
+  /** Numbered from 1, in the order the echoes were sent. */
+  sequence: number;
+  status: EchoStatus;
+  roundTripMs: number | null;
+  /** IPv6 replies carry no TTL. */
+  ttl: number | null;
+  /** Who reported the destination unreachable, when known. */
+  from: string | null;
+};
+
+export type PingResult = {
+  resolved: string | null;
+  echoes: EchoReport[];
+  ending: RunEnding;
+  failureReason: string | null;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type PingUpdate =
+  | { kind: "resolved"; address: string }
+  | { kind: "echo"; echo: EchoReport }
+  | { kind: "finished"; result: PingResult };
+
+/** As typed: the count, payload size (bytes) and timeout (ms) are validated by the toolbox core. */
+export type PingInput = {
+  target: string;
+  count: string;
+  payloadSize: string;
+  timeoutMs: string;
+  dontFragment: boolean;
+  family: AddressFamily;
+};
+
+export type StartedPing = { id: RunId; echoesRequested: number };
+
+/** The starting values of Ping's editable fields, as the toolbox core defines them. */
+export function pingDefaults(): Promise<Pick<PingInput, "count" | "payloadSize" | "timeoutMs">> {
+  return invoke("ping_defaults");
+}
+
+/** Starts a Ping Run. Rejects with a message, before any Run starts, when the input is invalid. */
+export function startPing(input: PingInput, onUpdate: (update: PingUpdate) => void): Promise<StartedPing> {
+  const channel = new Channel<PingUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_ping", { input, onUpdate: channel });
+}
+
 export type SubnetReport = {
   network: string;
   prefix: number;

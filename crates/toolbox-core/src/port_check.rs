@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::InputError;
 use crate::network::{ConnectOutcome, Network};
 use crate::run::{RunEnding, RunHeader, milliseconds, text_table};
-use crate::target::{self, AddressFamily, Target};
+use crate::target::{AddressFamily, ChosenTarget};
 
 /// How long a port has to accept a connection before it counts as Filtered.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -32,20 +32,15 @@ pub struct PortCheckRequest {
 /// A Port Check whose input has been validated and is ready to run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortCheck {
-    target: Target,
+    target: ChosenTarget,
     ports: Vec<u16>,
-    family: AddressFamily,
 }
 
 impl PortCheckRequest {
     pub fn validate(&self) -> Result<PortCheck, InputError> {
-        let target = Target::parse_for(&self.target, self.family)?;
+        let target = ChosenTarget::parse(&self.target, self.family)?;
         let ports = parse_ports(&self.ports)?;
-        Ok(PortCheck {
-            target,
-            ports,
-            family: self.family,
-        })
+        Ok(PortCheck { target, ports })
     }
 }
 
@@ -225,7 +220,7 @@ pub async fn run(
         source_address: None,
     };
 
-    let resolving = target::resolve(network, &check.target, check.family);
+    let resolving = check.target.resolve(network);
     let Some(resolution) = stop.run_until_cancelled(resolving).await else {
         return without_ports(header, check, RunEnding::Stopped);
     };

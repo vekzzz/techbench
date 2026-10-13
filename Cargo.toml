@@ -2,6 +2,14 @@
 resolver = "3"
 members = ["src-tauri", "crates/toolbox-core"]
 
+# Dev builds keep only line tables for our own crates (enough for panics and backtraces) and no
+# debug info for dependencies; full debug info made target/debug grow past 19 GB.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

@@ -18,6 +18,33 @@ pub enum ConnectOutcome {
     Unreachable,
 }
 
+/// One ICMP echo request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EchoRequest {
+    pub destination: IpAddr,
+    /// Bytes of data carried by the echo.
+    pub payload_size: u16,
+    /// Forbids routers from fragmenting the packet, so an oversized one is refused instead.
+    pub dont_fragment: bool,
+    pub timeout: Duration,
+}
+
+/// What happened to one ICMP echo request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EchoOutcome {
+    /// The destination answered. IPv6 replies carry no TTL.
+    Reply {
+        round_trip: Duration,
+        ttl: Option<u8>,
+    },
+    /// No answer before the timeout.
+    TimedOut,
+    /// A router (`from`) or the local stack reported the destination unreachable.
+    Unreachable { from: Option<IpAddr> },
+    /// The packet was too big for a link on the path and Don't Fragment forbade splitting it.
+    FragmentationNeeded,
+}
+
 /// Why the system resolver could not turn a hostname into addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveError {
@@ -37,6 +64,9 @@ pub trait Network: Send + Sync {
         address: SocketAddr,
         timeout: Duration,
     ) -> impl Future<Output = ConnectOutcome> + Send;
+
+    /// Sends one ICMP echo request and waits for its outcome.
+    fn icmp_echo(&self, request: EchoRequest) -> impl Future<Output = EchoOutcome> + Send;
 
     /// The address of this PC that traffic to `destination` would leave from. Sends nothing.
     fn source_address(&self, destination: IpAddr) -> Option<IpAddr>;
@@ -95,6 +125,20 @@ impl Network for SystemNetwork {
                 _ => ConnectOutcome::Unreachable,
             },
             Err(_elapsed) => ConnectOutcome::TimedOut,
+        }
+    }
+
+    async fn icmp_echo(&self, request: EchoRequest) -> EchoOutcome {
+        #[cfg(windows)]
+        {
+            tokio::task::spawn_blocking(move || crate::windows_icmp::echo(request))
+                .await
+                .unwrap_or(EchoOutcome::Unreachable { from: None })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = request;
+            unimplemented!("ICMP echo is implemented for Windows only (ADR 0002)")
         }
     }
 

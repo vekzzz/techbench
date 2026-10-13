@@ -20,6 +20,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/use-theme";
 import { ComingSoon } from "@/screens/coming-soon";
+import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
 import { useAppStore } from "@/store";
@@ -52,6 +53,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
   switch (screen.id) {
     case "subnet-calculator":
       return <SubnetCalculator />;
+    case "ping":
+      return <Ping />;
     case "port-check":
       return <PortCheck />;
     default:

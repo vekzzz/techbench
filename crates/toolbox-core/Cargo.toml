@@ -13,7 +13,12 @@ tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-util = "0.7"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "test-util"] }

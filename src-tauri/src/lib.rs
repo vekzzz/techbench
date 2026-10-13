@@ -1,5 +1,6 @@
 //! The Tauri shell: exposes the toolbox core to the UI. It holds no Tool logic of its own.
 
+mod ping;
 mod port_check;
 mod runs;
 mod subnet;
@@ -13,6 +14,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             subnet::calculate_subnet,
             subnet::subnet_contains,
+            ping::ping_defaults,
+            ping::start_ping,
             port_check::port_presets,
             port_check::start_port_check,
             runs::stop_run,

@@ -23,9 +23,16 @@ pub enum AddressFamily {
     Ipv6,
 }
 
-impl Target {
+/// The Target a Run is aimed at, together with the IP version the Technician allowed for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChosenTarget {
+    target: Target,
+    family: AddressFamily,
+}
+
+impl ChosenTarget {
     /// Parses what the Technician typed for a Run limited to `family`.
-    pub fn parse_for(text: &str, family: AddressFamily) -> Result<Target, InputError> {
+    pub fn parse(text: &str, family: AddressFamily) -> Result<ChosenTarget, InputError> {
         let target = Target::parse(text)?;
         match (&target, family) {
             (Target::Address(IpAddr::V4(_)), AddressFamily::Ipv6) => Err(InputError::new(format!(
@@ -34,10 +41,41 @@ impl Target {
             (Target::Address(IpAddr::V6(_)), AddressFamily::Ipv4) => Err(InputError::new(format!(
                 "{target} is an IPv6 address, but IPv4 is forced"
             ))),
-            _ => Ok(target),
+            _ => Ok(ChosenTarget { target, family }),
         }
     }
 
+    /// Picks the single Resolved Address a Run uses: IPv4 first unless the family says otherwise.
+    pub(crate) async fn resolve(&self, network: &impl Network) -> Result<IpAddr, String> {
+        match &self.target {
+            Target::Address(address) => Ok(*address),
+            Target::Hostname(name) => {
+                let addresses = network.resolve(name).await.map_err(|error| error.message)?;
+                let first_v4 = addresses.iter().copied().find(IpAddr::is_ipv4);
+                let first_v6 = addresses.iter().copied().find(IpAddr::is_ipv6);
+                match self.family {
+                    AddressFamily::Auto => first_v4
+                        .or(first_v6)
+                        .ok_or_else(|| format!("{name} has no addresses")),
+                    AddressFamily::Ipv4 => {
+                        first_v4.ok_or_else(|| format!("{name} has no IPv4 address"))
+                    }
+                    AddressFamily::Ipv6 => {
+                        first_v6.ok_or_else(|| format!("{name} has no IPv6 address"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Display for ChosenTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.target.fmt(f)
+    }
+}
+
+impl Target {
     /// Parses what the Technician typed.
     fn parse(text: &str) -> Result<Target, InputError> {
         let text = text.trim();
@@ -87,33 +125,6 @@ impl fmt::Display for Target {
         match self {
             Target::Address(address) => address.fmt(f),
             Target::Hostname(name) => name.fmt(f),
-        }
-    }
-}
-
-/// Picks the single address a Run uses for `target`.
-pub(crate) async fn resolve(
-    network: &impl Network,
-    target: &Target,
-    family: AddressFamily,
-) -> Result<IpAddr, String> {
-    match target {
-        Target::Address(address) => Ok(*address),
-        Target::Hostname(name) => {
-            let addresses = network.resolve(name).await.map_err(|error| error.message)?;
-            let first_v4 = addresses.iter().copied().find(IpAddr::is_ipv4);
-            let first_v6 = addresses.iter().copied().find(IpAddr::is_ipv6);
-            match family {
-                AddressFamily::Auto => first_v4
-                    .or(first_v6)
-                    .ok_or_else(|| format!("{name} has no addresses")),
-                AddressFamily::Ipv4 => {
-                    first_v4.ok_or_else(|| format!("{name} has no IPv4 address"))
-                }
-                AddressFamily::Ipv6 => {
-                    first_v6.ok_or_else(|| format!("{name} has no IPv6 address"))
-                }
-            }
         }
     }
 }

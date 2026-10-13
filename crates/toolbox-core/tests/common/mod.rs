@@ -7,7 +7,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
-use toolbox_core::network::{ConnectOutcome, Network, ResolveError};
+use std::collections::VecDeque;
+
+use toolbox_core::network::{ConnectOutcome, EchoOutcome, EchoRequest, Network, ResolveError};
 
 pub const PC_NAME: &str = "TECH-PC";
 pub const PC_ADDRESS: &str = "10.0.0.23";
@@ -35,10 +37,21 @@ enum NameScript {
     Hang,
 }
 
+/// How the fake answers one ICMP echo.
+pub enum EchoScript {
+    Answer(EchoOutcome),
+    /// Waits out the whole timeout, then times out, like a host that drops pings.
+    Silent,
+    /// Never answers, so only stopping the Run ends it.
+    Hang,
+}
+
 pub struct FakeNetwork {
     names: HashMap<String, NameScript>,
     connects: HashMap<SocketAddr, ConnectScript>,
     connect_timeouts: Mutex<Vec<Duration>>,
+    echoes: Mutex<HashMap<IpAddr, VecDeque<EchoScript>>>,
+    echo_requests: Mutex<Vec<EchoRequest>>,
 }
 
 impl FakeNetwork {
@@ -47,7 +60,29 @@ impl FakeNetwork {
             names: HashMap::new(),
             connects: HashMap::new(),
             connect_timeouts: Mutex::new(Vec::new()),
+            echoes: Mutex::new(HashMap::new()),
+            echo_requests: Mutex::new(Vec::new()),
         }
+    }
+
+    /// `destination` answers successive echoes as scripted, in order.
+    pub fn with_echoes(
+        self,
+        destination: &str,
+        scripts: impl IntoIterator<Item = EchoScript>,
+    ) -> Self {
+        self.echoes
+            .lock()
+            .unwrap()
+            .entry(ip(destination))
+            .or_default()
+            .extend(scripts);
+        self
+    }
+
+    /// Every echo request the Run sent, in order.
+    pub fn echo_requests(&self) -> Vec<EchoRequest> {
+        self.echo_requests.lock().unwrap().clone()
     }
 
     /// The system resolver answers `name` with these addresses, in this order.
@@ -125,6 +160,29 @@ impl Network for FakeNetwork {
             }
             Some(ConnectScript::Hang) => std::future::pending().await,
             None => panic!("test did not script a connect to {address}"),
+        }
+    }
+
+    async fn icmp_echo(&self, request: EchoRequest) -> EchoOutcome {
+        self.echo_requests.lock().unwrap().push(request);
+        let script = self
+            .echoes
+            .lock()
+            .unwrap()
+            .get_mut(&request.destination)
+            .and_then(VecDeque::pop_front);
+        match script {
+            Some(EchoScript::Answer(outcome)) => outcome,
+            Some(EchoScript::Silent) => {
+                tokio::time::sleep(request.timeout).await;
+                EchoOutcome::TimedOut
+            }
+            Some(EchoScript::Hang) => std::future::pending().await,
+            None => panic!(
+                "test did not script echo {} to {}",
+                self.echo_requests().len(),
+                request.destination
+            ),
         }
     }
 

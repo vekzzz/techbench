@@ -8,10 +8,8 @@ use toolbox_core::network::SystemNetwork;
 use toolbox_core::port_check::{
     self, PortCheckEvent, PortCheckRequest, PortCheckResult, PortOutcome, PortReport,
 };
-use toolbox_core::run::RunEnding;
-use toolbox_core::target::AddressFamily;
 
-use crate::runs::{RunId, Runs};
+use crate::runs::{AddressFamilyInput, EndingView, RunId, Runs};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,24 +17,6 @@ pub struct PortCheckInput {
     target: String,
     ports: String,
     family: AddressFamilyInput,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum AddressFamilyInput {
-    Auto,
-    Ipv4,
-    Ipv6,
-}
-
-impl From<AddressFamilyInput> for AddressFamily {
-    fn from(family: AddressFamilyInput) -> Self {
-        match family {
-            AddressFamilyInput::Auto => AddressFamily::Auto,
-            AddressFamilyInput::Ipv4 => AddressFamily::Ipv4,
-            AddressFamilyInput::Ipv6 => AddressFamily::Ipv6,
-        }
-    }
 }
 
 /// One message on a Port Check Run's channel.
@@ -63,8 +43,8 @@ pub struct PortCheckResultView {
     resolved: Option<String>,
     ports: Vec<PortView>,
     ports_requested: usize,
-    ending: &'static str,
-    failure_reason: Option<String>,
+    #[serde(flatten)]
+    ending: EndingView,
     /// The one-line conclusion, worded by the toolbox core.
     summary: String,
     text: String,
@@ -105,17 +85,11 @@ impl From<PortCheckResult> for PortCheckResultView {
     fn from(result: PortCheckResult) -> Self {
         let text = result.to_text();
         let summary = result.summary();
-        let (ending, failure_reason) = match result.ending {
-            RunEnding::Completed => ("completed", None),
-            RunEnding::Stopped => ("stopped", None),
-            RunEnding::ResolutionFailed { reason } => ("resolutionFailed", Some(reason)),
-        };
         Self {
             resolved: result.header.resolved.map(|address| address.to_string()),
             ports: result.ports.into_iter().map(PortView::from).collect(),
             ports_requested: result.ports_requested,
-            ending,
-            failure_reason,
+            ending: result.ending.into(),
             summary,
             text,
         }

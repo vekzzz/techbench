@@ -1,10 +1,13 @@
 //! The IT Tools toolbox core: every Tool's behaviour, with no dependency on Tauri or the UI.
 
 pub mod network;
+pub mod ping;
 pub mod port_check;
 pub mod run;
 pub mod subnet_calculator;
 pub mod target;
+#[cfg(windows)]
+mod windows_icmp;
 
 /// Why something the Technician typed was rejected before a Run could start.
 #[derive(Debug, Clone, PartialEq, Eq)]
