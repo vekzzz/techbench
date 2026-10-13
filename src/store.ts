@@ -9,6 +9,8 @@ export type PortCheckRun = {
   key: number;
   /** The shell's id for stopping it; null until the shell has accepted the Run. */
   id: toolbox.RunId | null;
+  /** How many ports the Run will check; null until the shell has accepted the Run. */
+  portCount: number | null;
   resolved: string | null;
   ports: toolbox.PortReport[];
   result: toolbox.PortCheckResult | null;
@@ -45,11 +47,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateSubnetCalculator: (patch) =>
     set((state) => ({ subnetCalculator: { ...state.subnetCalculator, ...patch } })),
 
-  portCheck: { target: "", port: "", family: "auto", error: null, run: null },
+  portCheck: { target: "", ports: "", family: "auto", error: null, run: null },
   updatePortCheck: (patch) => set((state) => ({ portCheck: { ...state.portCheck, ...patch } })),
 
   startPortCheck: async () => {
-    const { target, port, family, run: previous } = get().portCheck;
+    const { target, ports, family, run: previous } = get().portCheck;
     stopIfRunning(previous);
 
     const key = ++lastRunKey;
@@ -60,10 +62,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
     set((state) => ({
-      portCheck: { ...state.portCheck, error: null, run: { key, id: null, resolved: null, ports: [], result: null } },
+      portCheck: {
+        ...state.portCheck,
+        error: null,
+        run: { key, id: null, portCount: null, resolved: null, ports: [], result: null },
+      },
     }));
     try {
-      const id = await toolbox.startPortCheck({ target, port, family }, (update) => {
+      const started = await toolbox.startPortCheck({ target, ports, family }, (update) => {
         switch (update.kind) {
           case "resolved":
             return updateRun((run) => ({ ...run, resolved: update.address }));
@@ -73,7 +79,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             return updateRun((run) => ({ ...run, result: update.result }));
         }
       });
-      updateRun((run) => ({ ...run, id }));
+      updateRun((run) => ({ ...run, id: started.id, portCount: started.portCount }));
     } catch (reason) {
       set((state) =>
         state.portCheck.run?.key === key ? { portCheck: { ...state.portCheck, error: String(reason), run: null } } : state,

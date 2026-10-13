@@ -17,13 +17,17 @@ export type PortOutcome = "open" | "closed" | "filtered";
 
 export type PortReport = {
   port: number;
+  /** What usually listens on this port, when it is well known. */
+  service: string | null;
   outcome: PortOutcome;
   connectTimeMs: number | null;
 };
 
 export type PortCheckResult = {
   resolved: string | null;
+  /** The ports that answered, in port order. */
   ports: PortReport[];
+  portsRequested: number;
   ending: RunEnding;
   failureReason: string | null;
   /** The Result as plain text, ready to paste into a ticket. */
@@ -35,13 +39,26 @@ export type PortCheckUpdate =
   | { kind: "port"; port: PortReport }
   | { kind: "finished"; result: PortCheckResult };
 
-export type PortCheckInput = { target: string; port: string; family: AddressFamily };
+/** `ports` as typed: one port, a comma-separated list, or ranges such as 8000-8010. */
+export type PortCheckInput = { target: string; ports: string; family: AddressFamily };
+
+export type StartedPortCheck = { id: RunId; portCount: number };
 
 /** Starts a Port Check Run. Rejects with a message, before any Run starts, when the input is invalid. */
-export function startPortCheck(input: PortCheckInput, onUpdate: (update: PortCheckUpdate) => void): Promise<RunId> {
+export function startPortCheck(
+  input: PortCheckInput,
+  onUpdate: (update: PortCheckUpdate) => void,
+): Promise<StartedPortCheck> {
   const channel = new Channel<PortCheckUpdate>();
   channel.onmessage = onUpdate;
   return invoke("start_port_check", { input, onUpdate: channel });
+}
+
+/** A named set of commonly checked ports. Port Presets are built in and not editable. */
+export type PortPreset = { name: string; ports: number[] };
+
+export function portPresets(): Promise<PortPreset[]> {
+  return invoke("port_presets");
 }
 
 export type SubnetReport = {

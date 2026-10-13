@@ -17,7 +17,7 @@ use crate::runs::{RunId, Runs};
 #[serde(rename_all = "camelCase")]
 pub struct PortCheckInput {
     target: String,
-    port: String,
+    ports: String,
     family: AddressFamilyInput,
 }
 
@@ -52,6 +52,7 @@ pub enum PortCheckUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct PortView {
     port: u16,
+    service: Option<&'static str>,
     outcome: &'static str,
     connect_time_ms: Option<f64>,
 }
@@ -61,6 +62,7 @@ pub struct PortView {
 pub struct PortCheckResultView {
     resolved: Option<String>,
     ports: Vec<PortView>,
+    ports_requested: usize,
     ending: &'static str,
     failure_reason: Option<String>,
     text: String,
@@ -77,6 +79,7 @@ impl From<PortReport> for PortView {
         };
         Self {
             port: report.port,
+            service: port_check::service_name(report.port),
             outcome,
             connect_time_ms,
         }
@@ -107,11 +110,37 @@ impl From<PortCheckResult> for PortCheckResultView {
         Self {
             resolved: result.header.resolved.map(|address| address.to_string()),
             ports: result.ports.into_iter().map(PortView::from).collect(),
+            ports_requested: result.ports_requested,
             ending,
             failure_reason,
             text,
         }
     }
+}
+
+/// A Port Check Run the shell has accepted.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedPortCheck {
+    id: RunId,
+    port_count: usize,
+}
+
+#[derive(Serialize)]
+pub struct PortPresetView {
+    name: &'static str,
+    ports: &'static [u16],
+}
+
+#[tauri::command]
+pub fn port_presets() -> Vec<PortPresetView> {
+    port_check::PORT_PRESETS
+        .iter()
+        .map(|preset| PortPresetView {
+            name: preset.name,
+            ports: preset.ports,
+        })
+        .collect()
 }
 
 /// Validates the input, then runs the Port Check in the background. Invalid input is
@@ -121,13 +150,14 @@ pub fn start_port_check(
     input: PortCheckInput,
     on_update: Channel<PortCheckUpdate>,
     runs: tauri::State<'_, Arc<Runs>>,
-) -> Result<RunId, String> {
+) -> Result<StartedPortCheck, String> {
     let request = PortCheckRequest {
         target: input.target,
-        port: input.port,
+        ports: input.ports,
         family: input.family.into(),
     };
     let check = request.validate().map_err(|error| error.message)?;
+    let port_count = check.ports().len();
     let (id, stop) = runs.start();
     let runs = Arc::clone(&runs);
 
@@ -141,5 +171,5 @@ pub fn start_port_check(
         });
         runs.finish(id);
     });
-    Ok(id)
+    Ok(StartedPortCheck { id, port_count })
 }

@@ -23,6 +23,8 @@ pub fn ip(text: &str) -> IpAddr {
 
 enum ConnectScript {
     Answer(ConnectOutcome),
+    /// Waits out the whole timeout, then times out, like a firewall dropping the SYN.
+    Silent,
     /// Never answers, so only stopping the Run ends it.
     Hang,
 }
@@ -76,6 +78,15 @@ impl FakeNetwork {
         self
     }
 
+    /// Every listed port on `host` stays silent until the connect times out.
+    pub fn with_silent_ports(mut self, host: &str, ports: impl IntoIterator<Item = u16>) -> Self {
+        for port in ports {
+            self.connects
+                .insert(SocketAddr::new(ip(host), port), ConnectScript::Silent);
+        }
+        self
+    }
+
     pub fn with_hanging_connect(mut self, address: &str) -> Self {
         self.connects
             .insert(address.parse().unwrap(), ConnectScript::Hang);
@@ -104,6 +115,10 @@ impl Network for FakeNetwork {
         self.connect_timeouts.lock().unwrap().push(timeout);
         match self.connects.get(&address) {
             Some(ConnectScript::Answer(outcome)) => *outcome,
+            Some(ConnectScript::Silent) => {
+                tokio::time::sleep(timeout).await;
+                ConnectOutcome::TimedOut
+            }
             Some(ConnectScript::Hang) => std::future::pending().await,
             None => panic!("test did not script a connect to {address}"),
         }

@@ -3527,6 +3527,7 @@ name = "toolbox-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures-util",
  "gethostname",
  "tokio",
  "tokio-util",

@@ -13,10 +13,10 @@ use toolbox_core::port_check::{
 use toolbox_core::run::RunEnding;
 use toolbox_core::target::AddressFamily;
 
-fn request(target: &str, port: &str) -> PortCheckRequest {
+fn request(target: &str, ports: &str) -> PortCheckRequest {
     PortCheckRequest {
         target: target.to_string(),
-        port: port.to_string(),
+        ports: ports.to_string(),
         family: AddressFamily::Auto,
     }
 }
@@ -314,8 +314,8 @@ Resolved:  10.0.0.5
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-PORT  OUTCOME  CONNECT TIME
-445   Open     3 ms
+PORT  SERVICE  OUTCOME  CONNECT TIME
+445   SMB      Open     3 ms
 
 1 port checked: 1 Open, 0 Closed, 0 Filtered
 "
@@ -374,5 +374,229 @@ async fn copy_as_text_shows_a_sub_millisecond_connect_as_under_one_millisecond()
 
     let text = run(&network, request("127.0.0.1", "8080")).await.to_text();
 
-    assert!(text.contains("8080  Open     <1 ms\n"), "{text}");
+    assert!(text.contains("Open     <1 ms\n"), "{text}");
+}
+
+#[tokio::test]
+async fn a_comma_separated_list_checks_every_port_and_reports_them_in_port_order() {
+    let network = FakeNetwork::new()
+        .with_connect("10.0.0.5:22", ConnectOutcome::Refused)
+        .with_connect(
+            "10.0.0.5:80",
+            ConnectOutcome::Accepted {
+                connect_time: ms(2),
+            },
+        )
+        .with_connect("10.0.0.5:443", ConnectOutcome::TimedOut);
+
+    let result = run(&network, request("10.0.0.5", "443, 22,80")).await;
+
+    assert_eq!(
+        result.ports,
+        vec![
+            PortReport {
+                port: 22,
+                outcome: PortOutcome::Closed
+            },
+            PortReport {
+                port: 80,
+                outcome: PortOutcome::Open {
+                    connect_time: ms(2)
+                }
+            },
+            PortReport {
+                port: 443,
+                outcome: PortOutcome::Filtered
+            },
+        ]
+    );
+}
+
+#[test]
+fn ranges_are_inclusive_and_the_ports_are_deduplicated_and_sorted() {
+    let check = request("10.0.0.5", "8000-8002, 22, 8001, 20-22")
+        .validate()
+        .unwrap();
+
+    assert_eq!(check.ports(), [20, 21, 22, 8000, 8001, 8002]);
+}
+
+#[test]
+fn malformed_port_entries_are_rejected() {
+    for ports in ["80-", "-80", "90-80", "1-99999", "22;80", "22, , 80"] {
+        assert!(
+            request("10.0.0.5", ports).validate().is_err(),
+            "{ports:?} should be rejected"
+        );
+    }
+}
+
+#[test]
+fn the_rejection_names_the_entry_that_is_wrong() {
+    let error = request("10.0.0.5", "22, 443, 90-80")
+        .validate()
+        .unwrap_err();
+
+    assert!(error.message.contains("90-80"), "{}", error.message);
+}
+
+#[test]
+fn a_run_may_check_up_to_1024_ports() {
+    assert_eq!(
+        request("10.0.0.5", "1-1024")
+            .validate()
+            .map(|check| check.ports().len()),
+        Ok(1024)
+    );
+}
+
+#[test]
+fn more_than_1024_ports_are_rejected_with_a_clear_message() {
+    let error = request("10.0.0.5", "1-1025").validate().unwrap_err();
+
+    assert!(error.message.contains("1,024"), "{}", error.message);
+}
+
+#[tokio::test(start_paused = true)]
+async fn silent_ports_are_waited_on_together_so_a_preset_takes_one_timeout() {
+    let network = FakeNetwork::new().with_silent_ports("10.0.0.5", [135, 445, 3389, 5985, 5986]);
+    let started = tokio::time::Instant::now();
+
+    let result = run(&network, request("10.0.0.5", "135, 445, 3389, 5985, 5986")).await;
+
+    assert_eq!((result.ports.len(), started.elapsed()), (5, ms(2000)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn no_more_than_32_ports_are_waited_on_at_once() {
+    let network = FakeNetwork::new().with_silent_ports("10.0.0.5", 1..=40);
+    let started = tokio::time::Instant::now();
+
+    let result = run(&network, request("10.0.0.5", "1-40")).await;
+
+    // 32 in the first wave, the remaining 8 in a second: two timeouts in all.
+    assert_eq!((result.ports.len(), started.elapsed()), (40, ms(4000)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn outcomes_are_reported_as_each_port_finishes_while_the_result_stays_in_port_order() {
+    let network = FakeNetwork::new()
+        .with_silent_ports("10.0.0.5", [22])
+        .with_connect("10.0.0.5:80", ConnectOutcome::Refused);
+    let check = request("10.0.0.5", "22, 80").validate().unwrap();
+    let mut events = Vec::new();
+
+    let result = port_check::run(&network, &check, &CancellationToken::new(), |event| {
+        events.push(event)
+    })
+    .await;
+
+    let closed_80 = PortReport {
+        port: 80,
+        outcome: PortOutcome::Closed,
+    };
+    let filtered_22 = PortReport {
+        port: 22,
+        outcome: PortOutcome::Filtered,
+    };
+    assert_eq!(
+        (events, result.ports),
+        (
+            vec![
+                PortCheckEvent::Resolved(ip("10.0.0.5")),
+                PortCheckEvent::Port(closed_80),
+                PortCheckEvent::Port(filtered_22)
+            ],
+            vec![filtered_22, closed_80]
+        )
+    );
+}
+
+#[tokio::test]
+async fn stopping_partway_keeps_the_ports_already_answered_and_says_how_far_it_got() {
+    let network = FakeNetwork::new()
+        .with_connect("10.0.0.5:22", ConnectOutcome::Refused)
+        .with_hanging_connect("10.0.0.5:445");
+
+    let result = run_then_stop(&network, request("10.0.0.5", "22, 445")).await;
+
+    assert_eq!(
+        result.to_text(),
+        "\
+Port Check
+Target:    10.0.0.5
+Resolved:  10.0.0.5
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC (10.0.0.23)
+
+PORT  SERVICE  OUTCOME  CONNECT TIME
+22    SSH      Closed   -
+
+Stopped after 1 of 2 ports: 0 Open, 1 Closed, 0 Filtered
+"
+    );
+}
+
+#[test]
+fn well_known_ports_carry_a_service_name_hint() {
+    let hints: Vec<_> = [3389, 5985, 445, 12345]
+        .into_iter()
+        .map(port_check::service_name)
+        .collect();
+
+    assert_eq!(hints, [Some("RDP"), Some("WinRM"), Some("SMB"), None]);
+}
+
+#[test]
+fn the_seven_port_presets_hold_exactly_the_ports_the_spec_lists() {
+    let presets: Vec<(&str, &[u16])> = port_check::PORT_PRESETS
+        .iter()
+        .map(|preset| (preset.name, preset.ports))
+        .collect();
+
+    assert_eq!(
+        presets,
+        [
+            ("Windows", &[135, 445, 3389, 5985, 5986][..]),
+            ("Directory", &[53, 88, 389, 636, 3268]),
+            ("Web", &[80, 443, 8080, 8443]),
+            ("Remote", &[22, 3389, 5900]),
+            ("Mail", &[25, 465, 587, 993, 995]),
+            ("Database", &[1433, 3306, 5432]),
+            ("Printing", &[9100, 631, 515]),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn copy_as_text_of_several_ports_aligns_each_column_and_counts_every_outcome() {
+    let network = FakeNetwork::new()
+        .with_connect("10.0.0.5:22", ConnectOutcome::Refused)
+        .with_connect(
+            "10.0.0.5:80",
+            ConnectOutcome::Accepted {
+                connect_time: ms(3),
+            },
+        )
+        .with_connect("10.0.0.5:3389", ConnectOutcome::TimedOut);
+
+    let result = run(&network, request("10.0.0.5", "3389, 80, 22")).await;
+
+    assert_eq!(
+        result.to_text(),
+        "\
+Port Check
+Target:    10.0.0.5
+Resolved:  10.0.0.5
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC (10.0.0.23)
+
+PORT  SERVICE  OUTCOME   CONNECT TIME
+22    SSH      Closed    -
+80    HTTP     Open      3 ms
+3389  RDP      Filtered  -
+
+3 ports checked: 1 Open, 1 Closed, 1 Filtered
+"
+    );
 }

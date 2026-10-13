@@ -1,22 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { TargetInput } from "@/components/target-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { PortOutcome, PortReport } from "@/lib/toolbox";
+import { portPresets, type PortOutcome, type PortPreset, type PortReport } from "@/lib/toolbox";
 import { useAppStore, type PortCheckRun } from "@/store";
 
 export function PortCheck() {
-  const { target, port, family, error, run } = useAppStore((state) => state.portCheck);
+  const { target, ports, family, error, run } = useAppStore((state) => state.portCheck);
   const update = useAppStore((state) => state.updatePortCheck);
   const start = useAppStore((state) => state.startPortCheck);
   const stop = useAppStore((state) => state.stopPortCheck);
+  const presets = usePortPresets();
   const running = run !== null && run.result === null;
 
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
+    <div className="flex max-w-3xl flex-col gap-6">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -25,30 +26,42 @@ export function PortCheck() {
           else void start();
         }}
       >
-        <div className="grid grid-cols-[1fr_7rem] items-end gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="port-check-target">Target</Label>
-            <TargetInput
-              id="port-check-target"
-              autoFocus
-              value={target}
-              onChange={(value) => update({ target: value })}
-              family={family}
-              onFamilyChange={(value) => update({ family: value })}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="port-check-port">Port</Label>
-            <Input
-              id="port-check-port"
-              inputMode="numeric"
-              spellCheck={false}
-              autoComplete="off"
-              className="font-mono"
-              placeholder="443"
-              value={port}
-              onChange={(event) => update({ port: event.target.value })}
-            />
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="port-check-target">Target</Label>
+          <TargetInput
+            id="port-check-target"
+            autoFocus
+            value={target}
+            onChange={(value) => update({ target: value })}
+            family={family}
+            onFamilyChange={(value) => update({ family: value })}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="port-check-ports">Ports</Label>
+          <Input
+            id="port-check-ports"
+            spellCheck={false}
+            autoComplete="off"
+            className="font-mono"
+            placeholder="443   or   22, 80, 8000-8010"
+            value={ports}
+            onChange={(event) => update({ ports: event.target.value })}
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="mr-1 text-xs text-muted-foreground">Presets</span>
+            {presets.map((preset) => (
+              <Button
+                key={preset.name}
+                type="button"
+                size="xs"
+                variant="outline"
+                title={preset.ports.join(", ")}
+                onClick={() => update({ ports: preset.ports.join(", ") })}
+              >
+                {preset.name}
+              </Button>
+            ))}
           </div>
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
@@ -65,6 +78,15 @@ export function PortCheck() {
   );
 }
 
+/** The built-in Port Presets, fetched once from the toolbox core. */
+function usePortPresets() {
+  const [presets, setPresets] = useState<PortPreset[]>([]);
+  useEffect(() => {
+    void portPresets().then(setPresets);
+  }, []);
+  return presets;
+}
+
 function RunView({ run }: { run: PortCheckRun }) {
   const result = run.result;
 
@@ -72,16 +94,29 @@ function RunView({ run }: { run: PortCheckRun }) {
     return <p className="text-xs text-destructive">Could not resolve the Target: {result.failureReason}</p>;
   }
 
+  const ports = [...run.ports].sort((a, b) => a.port - b.port);
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
         Resolved address: <span className="font-mono text-foreground">{run.resolved ?? "resolving…"}</span>
       </p>
-      {run.ports.length > 0 && <PortTable ports={run.ports} />}
-      {!result && <p className="text-xs text-muted-foreground">Checking…</p>}
-      {result?.ending === "stopped" && <p className="text-xs text-muted-foreground">Stopped before any port answered.</p>}
+      {!result && (
+        <p className="text-xs text-muted-foreground">
+          Checking… {run.portCount !== null && `${run.ports.length} of ${run.portCount} ports answered`}
+        </p>
+      )}
+      {ports.length > 0 && <PortTable ports={ports} />}
+      {result && <p className="text-xs text-muted-foreground">{summary(result.ending, ports, result.portsRequested)}</p>}
     </div>
   );
+}
+
+function summary(ending: string, ports: PortReport[], requested: number) {
+  if (ending === "stopped" && ports.length === 0) return "Stopped before any port answered.";
+  const count = (outcome: PortOutcome) => ports.filter((report) => report.outcome === outcome).length;
+  const tally = `${count("open")} Open, ${count("closed")} Closed, ${count("filtered")} Filtered`;
+  if (ending === "stopped") return `Stopped after ${ports.length} of ${requested} ports: ${tally}`;
+  return `${ports.length} port${ports.length === 1 ? "" : "s"} checked: ${tally}`;
 }
 
 function PortTable({ ports }: { ports: PortReport[] }) {
@@ -90,6 +125,7 @@ function PortTable({ ports }: { ports: PortReport[] }) {
       <thead className="bg-muted/40 text-left text-muted-foreground">
         <tr>
           <th className="px-3 py-1.5 font-normal">Port</th>
+          <th className="px-3 py-1.5 font-normal">Service</th>
           <th className="px-3 py-1.5 font-normal">Outcome</th>
           <th className="px-3 py-1.5 font-normal">Connect time</th>
         </tr>
@@ -98,6 +134,7 @@ function PortTable({ ports }: { ports: PortReport[] }) {
         {ports.map((report) => (
           <tr key={report.port} className="border-t">
             <td className="px-3 py-1.5 font-mono">{report.port}</td>
+            <td className="px-3 py-1.5 text-muted-foreground">{report.service ?? "-"}</td>
             <td className="px-3 py-1.5">
               <OutcomeBadge outcome={report.outcome} />
             </td>

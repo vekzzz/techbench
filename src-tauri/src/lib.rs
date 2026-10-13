@@ -13,6 +13,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             subnet::calculate_subnet,
             subnet::subnet_contains,
+            port_check::port_presets,
             port_check::start_port_check,
             runs::stop_run,
         ])

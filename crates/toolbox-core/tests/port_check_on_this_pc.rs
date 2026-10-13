@@ -11,7 +11,7 @@ use toolbox_core::target::AddressFamily;
 async fn check(target: &str, port: u16) -> PortCheckResult {
     let request = PortCheckRequest {
         target: target.to_string(),
-        port: port.to_string(),
+        ports: port.to_string(),
         family: AddressFamily::Auto,
     };
     port_check::run(
