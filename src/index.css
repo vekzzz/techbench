@@ -129,4 +129,8 @@
   html {
     @apply font-sans;
     }
+  /* Ligatures would merge characters such as ".." or "::" in addresses; show every character as typed. */
+  .font-mono {
+    font-variant-ligatures: none;
+    }
 }

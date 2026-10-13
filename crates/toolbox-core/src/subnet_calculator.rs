@@ -3,6 +3,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+pub use crate::InputError;
+
 /// Everything the Subnet Calculator reports for one subnet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubnetReport {
@@ -41,12 +43,6 @@ impl SubnetReport {
             )),
         }
     }
-}
-
-/// Why the Technician's input could not be calculated.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InputError {
-    pub message: String,
 }
 
 /// Calculates the subnet described by what the Technician typed.
@@ -148,7 +144,5 @@ fn v6(bits: u128) -> IpAddr {
 }
 
 fn error(message: &str) -> InputError {
-    InputError {
-        message: message.to_string(),
-    }
+    InputError::new(message)
 }

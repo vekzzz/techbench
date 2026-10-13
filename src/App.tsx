@@ -20,6 +20,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/use-theme";
 import { ComingSoon } from "@/screens/coming-soon";
+import { PortCheck } from "@/screens/port-check";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
 import { useAppStore } from "@/store";
 import { SAVED_TARGETS, TOOLS, screenById, type Screen } from "@/tools";
@@ -39,12 +40,23 @@ function App() {
             <span className="truncate text-xs text-muted-foreground">{screen.summary}</span>
           </header>
           <main className="flex-1 overflow-auto p-6">
-            {screen.id === "subnet-calculator" ? <SubnetCalculator /> : <ComingSoon screen={screen} />}
+            <ScreenContent screen={screen} />
           </main>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
   );
+}
+
+function ScreenContent({ screen }: { screen: Screen }) {
+  switch (screen.id) {
+    case "subnet-calculator":
+      return <SubnetCalculator />;
+    case "port-check":
+      return <PortCheck />;
+    default:
+      return <ComingSoon screen={screen} />;
+  }
 }
 
 function AppSidebar() {
