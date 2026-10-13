@@ -47,7 +47,7 @@ The first run downloads Tauri's NSIS toolchain, so it needs internet access.
 
 Run the `-setup.exe`. Because the installer is unsigned, Windows SmartScreen shows a warning the first time: choose **More info → Run anyway**.
 
-- It installs for the current user only, under `%LOCALAPPDATA%\IT Tools`, so it needs no Administrator rights and shows no UAC prompt.
+- It installs into the signed-in Windows account only, under `%LOCALAPPDATA%\IT Tools`, so it needs no Administrator rights and shows no UAC prompt.
 - It adds **IT Tools** to the Start menu.
 - If the PC lacks the WebView2 runtime, the installer downloads it silently. Windows 11 already includes it.
 

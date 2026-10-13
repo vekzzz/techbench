@@ -19,8 +19,10 @@ Spec: user stories 5, 9; Implementation Decisions › Shape of the application.
 
 **2026-10-13 — implementation pass (Claude).** `npm run package` (documented in the README) builds `target\release\bundle\nsis\IT Tools_0.1.0_x64-setup.exe`, 1.71 MiB. It installs per user (`currentUser` mode), uses the WebView2 download bootstrapper, and statically links the Visual C++ runtime. The app now embeds an explicit `asInvoker` manifest; before this, it declared no execution level at all. Verified on this PC:
 - Both the installer and the app manifests request `asInvoker`.
-- A silent install (`/S`) creates `%LOCALAPPDATA%\IT Tools`, the Start menu entry `IT Tools\IT Tools.lnk`, and an HKCU uninstall entry.
+- A silent install (`/S`) creates `%LOCALAPPDATA%\IT Tools`, the Start menu entry `IT Tools.lnk` (originally inside an `IT Tools` folder; see follow-up), and an HKCU uninstall entry.
 - The installed app launched without UAC from a non-elevated shell, and the Subnet Calculator calculated correctly.
 - A silent uninstall removed the folder, the shortcut and the registry entry.
 
 Not verified: a truly clean Windows 11 PC, because this dev PC already has WebView2.
+
+**2026-10-13 — review follow-up (Claude).** I dropped `startMenuFolder`: setting it added a Start-menu wizard page, which offered "Do not create shortcuts". I also dropped `category`, which does nothing for NSIS. After rebuilding, I reran the silent install, launch and uninstall checks; all passed. The interactive wizard itself has not been clicked through yet.

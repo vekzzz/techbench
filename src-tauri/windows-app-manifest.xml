@@ -12,7 +12,7 @@
       />
     </dependentAssembly>
   </dependency>
-  <!-- IT Tools never asks for Administrator rights (ADR 0002), so it never shows a UAC prompt. -->
+  <!-- IT Tools runs without Administrator rights (ADR 0002), so launching it never shows a UAC prompt. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

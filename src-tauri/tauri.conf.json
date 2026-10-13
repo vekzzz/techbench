@@ -27,13 +27,11 @@
     "active": true,
     "targets": ["nsis"],
     "publisher": "Venuel",
-    "category": "Utility",
     "shortDescription": "Network diagnostics toolbox for IT Technicians",
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
       "nsis": {
-        "installMode": "currentUser",
-        "startMenuFolder": "IT Tools"
+        "installMode": "currentUser"
       }
     },
     "icon": [
