@@ -39,7 +39,7 @@ impl Target {
     }
 
     /// Parses what the Technician typed.
-    pub fn parse(text: &str) -> Result<Target, InputError> {
+    fn parse(text: &str) -> Result<Target, InputError> {
         let text = text.trim();
         if text.is_empty() {
             return Err(InputError::new("enter a hostname or IP address"));

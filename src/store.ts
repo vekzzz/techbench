@@ -33,6 +33,10 @@ type AppState = {
 
 let lastRunKey = 0;
 
+function stopIfRunning(run: PortCheckRun | null) {
+  if (run?.id != null && !run.result) void toolbox.stopRun(run.id);
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   screen: "subnet-calculator",
   showScreen: (screen) => set({ screen }),
@@ -46,7 +50,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   startPortCheck: async () => {
     const { target, port, family, run: previous } = get().portCheck;
-    if (previous?.id != null && !previous.result) void toolbox.stopRun(previous.id);
+    stopIfRunning(previous);
 
     const key = ++lastRunKey;
     const updateRun = (change: (run: PortCheckRun) => PortCheckRun) =>
@@ -77,8 +81,5 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  stopPortCheck: () => {
-    const run = get().portCheck.run;
-    if (run?.id != null && !run.result) void toolbox.stopRun(run.id);
-  },
+  stopPortCheck: () => stopIfRunning(get().portCheck.run),
 }));

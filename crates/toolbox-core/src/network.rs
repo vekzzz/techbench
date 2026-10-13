@@ -82,17 +82,18 @@ impl Network for SystemNetwork {
             return ConnectOutcome::Unreachable;
         };
         #[cfg(windows)]
-        report_refusal_at_once(&socket);
+        limit_syn_retransmissions(&socket);
 
         let started = Instant::now();
         match tokio::time::timeout(timeout, socket.connect(address)).await {
             Ok(Ok(_stream)) => ConnectOutcome::Accepted {
                 connect_time: started.elapsed(),
             },
-            Ok(Err(error)) if error.kind() == ErrorKind::ConnectionRefused => {
-                ConnectOutcome::Refused
-            }
-            Ok(Err(_)) => ConnectOutcome::Unreachable,
+            Ok(Err(error)) => match error.kind() {
+                ErrorKind::ConnectionRefused => ConnectOutcome::Refused,
+                ErrorKind::TimedOut => ConnectOutcome::TimedOut,
+                _ => ConnectOutcome::Unreachable,
+            },
             Err(_elapsed) => ConnectOutcome::TimedOut,
         }
     }
@@ -117,24 +118,27 @@ impl Network for SystemNetwork {
     }
 }
 
-/// Windows retries a SYN even after the Target refuses it, so a Closed port would take
-/// longer than the Port Check timeout to report and look Filtered. Turning off SYN
-/// retransmissions makes a refusal fail the connect at once; a silent Target still times out.
+/// Windows retries a SYN even after the Target refuses it: with its default two retries a
+/// refusal takes about 2 s to surface, so a Closed port would hit the Port Check timeout and
+/// look Filtered. Allowing one retransmission makes a refusal surface in about half a second,
+/// while a silent Target still gets its SYN resent once before the timeout. (No retransmissions
+/// would be faster still, but Windows then abandons a silent Target at its 1 s initial RTO,
+/// cutting the timeout short and never resending a lost SYN.)
 /// Best effort: if Windows rejects the option, the connect works as before.
 #[cfg(windows)]
-fn report_refusal_at_once(socket: &TcpSocket) {
+fn limit_syn_retransmissions(socket: &TcpSocket) {
     use std::os::windows::io::AsRawSocket;
     use windows_sys::Win32::Networking::WinSock::{
         SIO_TCP_INITIAL_RTO, TCP_INITIAL_RTO_PARAMETERS, WSAIoctl,
     };
 
-    // The Windows header defines these as (USHORT)-1 and (UCHAR)-2; windows-sys mistypes the second as u16.
+    // The Windows header defines this as (USHORT)-1: keep the system's initial RTO.
     const UNSPECIFIED_RTT: u16 = u16::MAX;
-    const NO_SYN_RETRANSMISSIONS: u8 = 0xFE;
+    const ONE_SYN_RETRANSMISSION: u8 = 1;
 
     let parameters = TCP_INITIAL_RTO_PARAMETERS {
         Rtt: UNSPECIFIED_RTT,
-        MaxSynRetransmissions: NO_SYN_RETRANSMISSIONS,
+        MaxSynRetransmissions: ONE_SYN_RETRANSMISSION,
     };
     let mut bytes_returned = 0u32;
     // SAFETY: the socket is open for the duration of the call, the input buffer is a live

@@ -34,7 +34,7 @@ Spec: user stories 3, 10–16, 54, 55, 80–83; Implementation Decisions › Too
 - **The UI:** a store slice that owns the Run (so it survives switching Tools), the shared `TargetInput` with its Auto/IPv4/IPv6 toggle, and the Port Check screen.
 
 Found while testing on this PC:
-- **Closed ports looked Filtered.** Windows retries a SYN even after a refusal, so a closed port took longer than the 2 s timeout to report. The real adapter now turns off SYN retransmissions (`SIO_TCP_INITIAL_RTO`), so a refusal fails at once. A silent Target still times out as Filtered.
+- **Closed ports looked Filtered.** Windows retries a SYN even after a refusal, so a closed port took longer than the 2 s timeout to report. The real adapter now limits SYN retransmissions to one (`SIO_TCP_INITIAL_RTO`); see the review follow-up below for the measurements.
 - **Resolver errors ended in "(os error 11001)".** That suffix is now stripped.
 - **JetBrains Mono ligatures drew `..` and `::` misleadingly.** Ligatures are now off for monospace text.
 
@@ -43,3 +43,23 @@ Verified in the running app:
 - Stop showed "Stopped before any port answered."
 - A Run against a silent address finished as Filtered while the Technician was on another Tool.
 - A malformed Target showed an inline error, and an unknown host showed a resolution failure.
+
+**2026-10-13 — review follow-up (Claude).** The Spec review caught a real problem: turning SYN retransmissions off entirely made Windows abandon a silent Target at its 1 s initial RTO. That cut the 2 s timeout in half and never resent a lost SYN. Measured on this PC:
+
+| Setting | Refused (localhost) | Silent (10.255.255.1) |
+| --- | --- | --- |
+| Windows default | 2042 ms | still waiting at 6 s |
+| no retransmissions | 0 ms | gives up at 1012 ms |
+| one retransmission (chosen) | 513 ms | resends at about 1 s; the 2 s timeout ends it as Filtered |
+
+An OS-level timeout now also maps to TimedOut instead of Unreachable. Smaller cleanups from the Standards review:
+- Stop handling uses `CancellationToken::run_until_cancelled`.
+- The store has one `stopIfRunning` helper.
+- The shell's `Family` is renamed `AddressFamilyInput`.
+- The unused `invalid` prop on `TargetInput` is gone.
+- `Target::parse` is now private.
+- The tests share a `run_then_stop` helper.
+
+Deferred on purpose:
+- Copying a Run that is still running. A single-port check takes 2 s at most; tickets 07, 08 and 10 need mid-run copying and will add it.
+- A Target-plus-IP-version type, and generic Run handling in the UI store. Both wait for Ping (ticket 05), the second Tool to need them.

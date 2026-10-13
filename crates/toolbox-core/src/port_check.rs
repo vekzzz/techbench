@@ -145,11 +145,15 @@ pub async fn run(
         source_hostname: network.hostname(),
         source_address: None,
     };
-    let resolution = tokio::select! {
-        resolution = target::resolve(network, &check.target, check.family) => resolution,
-        () = stop.cancelled() => {
-            return PortCheckResult { header, ports: vec![], ending: RunEnding::Stopped };
-        }
+    let stopped = |header| PortCheckResult {
+        header,
+        ports: vec![],
+        ending: RunEnding::Stopped,
+    };
+
+    let resolving = target::resolve(network, &check.target, check.family);
+    let Some(resolution) = stop.run_until_cancelled(resolving).await else {
+        return stopped(header);
     };
     let resolved = match resolution {
         Ok(address) => address,
@@ -166,11 +170,8 @@ pub async fn run(
     on_event(PortCheckEvent::Resolved(resolved));
 
     let connect = network.tcp_connect(SocketAddr::new(resolved, check.port), CONNECT_TIMEOUT);
-    let answer = tokio::select! {
-        answer = connect => answer,
-        () = stop.cancelled() => {
-            return PortCheckResult { header, ports: vec![], ending: RunEnding::Stopped };
-        }
+    let Some(answer) = stop.run_until_cancelled(connect).await else {
+        return stopped(header);
     };
     let outcome = match answer {
         ConnectOutcome::Accepted { connect_time } => PortOutcome::Open { connect_time },

@@ -15,7 +15,6 @@ export function TargetInput({
   onChange,
   family,
   onFamilyChange,
-  invalid = false,
   autoFocus = false,
 }: {
   id: string;
@@ -23,7 +22,6 @@ export function TargetInput({
   onChange: (value: string) => void;
   family: AddressFamily;
   onFamilyChange: (family: AddressFamily) => void;
-  invalid?: boolean;
   autoFocus?: boolean;
 }) {
   return (
@@ -36,7 +34,6 @@ export function TargetInput({
         className="font-mono"
         placeholder="Hostname or IP address"
         value={value}
-        aria-invalid={invalid}
         onChange={(event) => onChange(event.target.value)}
       />
       <div role="radiogroup" aria-label="IP version" className="flex shrink-0 rounded-md border p-0.5">

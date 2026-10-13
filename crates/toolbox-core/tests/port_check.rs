@@ -26,6 +26,17 @@ async fn run(network: &FakeNetwork, request: PortCheckRequest) -> PortCheckResul
     port_check::run(network, &check, &CancellationToken::new(), |_| {}).await
 }
 
+/// Starts the Run, and stops it as soon as it has to wait on the network.
+async fn run_then_stop(network: &FakeNetwork, request: PortCheckRequest) -> PortCheckResult {
+    let check = request.validate().expect("request should be valid");
+    let stop = CancellationToken::new();
+    let (result, ()) = tokio::join!(port_check::run(network, &check, &stop, |_| {}), async {
+        tokio::task::yield_now().await;
+        stop.cancel();
+    });
+    result
+}
+
 #[tokio::test]
 async fn a_port_that_accepts_the_connection_is_open_with_its_connect_time() {
     let network = FakeNetwork::new().with_connect(
@@ -235,13 +246,8 @@ fn an_ip_address_that_contradicts_the_forced_ip_version_is_rejected() {
 #[tokio::test]
 async fn stopping_a_run_ends_it_with_a_stopped_result_holding_what_was_collected() {
     let network = FakeNetwork::new().with_hanging_connect("10.0.0.5:445");
-    let check = request("10.0.0.5", "445").validate().unwrap();
-    let stop = CancellationToken::new();
 
-    let (result, ()) = tokio::join!(port_check::run(&network, &check, &stop, |_| {}), async {
-        tokio::task::yield_now().await;
-        stop.cancel();
-    });
+    let result = run_then_stop(&network, request("10.0.0.5", "445")).await;
 
     assert_eq!(
         (result.ending, result.ports, result.header.resolved),
@@ -252,13 +258,8 @@ async fn stopping_a_run_ends_it_with_a_stopped_result_holding_what_was_collected
 #[tokio::test]
 async fn stopping_a_run_while_its_hostname_is_still_resolving_ends_it_as_stopped() {
     let network = FakeNetwork::new().with_hanging_name("slow.corp.local");
-    let check = request("slow.corp.local", "445").validate().unwrap();
-    let stop = CancellationToken::new();
 
-    let (result, ()) = tokio::join!(port_check::run(&network, &check, &stop, |_| {}), async {
-        tokio::task::yield_now().await;
-        stop.cancel();
-    });
+    let result = run_then_stop(&network, request("slow.corp.local", "445")).await;
 
     assert_eq!(
         (result.ending, result.header.resolved),
@@ -345,13 +346,8 @@ Could not resolve nosuchhost.corp.local: No such host is known.
 #[tokio::test]
 async fn copy_as_text_of_a_stopped_run_says_it_was_stopped() {
     let network = FakeNetwork::new().with_hanging_connect("10.0.0.5:445");
-    let check = request("10.0.0.5", "445").validate().unwrap();
-    let stop = CancellationToken::new();
 
-    let (result, ()) = tokio::join!(port_check::run(&network, &check, &stop, |_| {}), async {
-        tokio::task::yield_now().await;
-        stop.cancel();
-    });
+    let result = run_then_stop(&network, request("10.0.0.5", "445")).await;
 
     assert_eq!(
         result.to_text(),

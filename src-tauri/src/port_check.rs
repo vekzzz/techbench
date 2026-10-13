@@ -18,23 +18,23 @@ use crate::runs::{RunId, Runs};
 pub struct PortCheckInput {
     target: String,
     port: String,
-    family: Family,
+    family: AddressFamilyInput,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Family {
+enum AddressFamilyInput {
     Auto,
     Ipv4,
     Ipv6,
 }
 
-impl From<Family> for AddressFamily {
-    fn from(family: Family) -> Self {
+impl From<AddressFamilyInput> for AddressFamily {
+    fn from(family: AddressFamilyInput) -> Self {
         match family {
-            Family::Auto => AddressFamily::Auto,
-            Family::Ipv4 => AddressFamily::Ipv4,
-            Family::Ipv6 => AddressFamily::Ipv6,
+            AddressFamilyInput::Auto => AddressFamily::Auto,
+            AddressFamilyInput::Ipv4 => AddressFamily::Ipv4,
+            AddressFamilyInput::Ipv6 => AddressFamily::Ipv6,
         }
     }
 }
