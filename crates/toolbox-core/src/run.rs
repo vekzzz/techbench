@@ -4,6 +4,9 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
+
+use crate::network::Network;
+use crate::target::ChosenTarget;
 /// Cancelling it stops a Run, which then finishes with a stopped Result.
 pub use tokio_util::sync::CancellationToken;
 
@@ -84,4 +87,47 @@ pub enum RunEnding {
     ResolutionFailed {
         reason: String,
     },
+}
+
+/// How the start of a Run went: it has a Resolved Address to work with, or it has already ended.
+pub(crate) enum Opening {
+    Resolved {
+        header: RunHeader,
+        resolved: IpAddr,
+    },
+    Ended {
+        header: RunHeader,
+        ending: RunEnding,
+    },
+}
+
+/// Starts a Run against `target`: notes when and from which PC, then resolves the Target,
+/// unless `stop` is cancelled first.
+pub(crate) async fn open(
+    network: &impl Network,
+    target: &ChosenTarget,
+    stop: &CancellationToken,
+) -> Opening {
+    let mut header = RunHeader {
+        target: target.to_string(),
+        resolved: None,
+        started_at: network.now(),
+        source_hostname: network.hostname(),
+        source_address: None,
+    };
+    match stop.run_until_cancelled(target.resolve(network)).await {
+        None => Opening::Ended {
+            header,
+            ending: RunEnding::Stopped,
+        },
+        Some(Err(reason)) => Opening::Ended {
+            header,
+            ending: RunEnding::ResolutionFailed { reason },
+        },
+        Some(Ok(resolved)) => {
+            header.resolved = Some(resolved);
+            header.source_address = network.source_address(resolved);
+            Opening::Resolved { header, resolved }
+        }
+    }
 }

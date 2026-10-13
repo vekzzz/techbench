@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
 use crate::network::{EchoOutcome, EchoRequest, Network};
-use crate::run::{RunEnding, RunHeader, milliseconds, text_table};
+use crate::run::{self, Opening, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
 
 /// How long after one echo the next is sent.
@@ -97,13 +97,26 @@ impl Ping {
     }
 }
 
-/// Parses a whole number within `min..=max`, or explains the allowed range.
-fn number_in(text: &str, min: u32, max: u32, range: &str) -> Result<u32, InputError> {
+/// Parses a whole number within `min..=max`, or rejects it with `explanation`.
+fn number_in(text: &str, min: u32, max: u32, explanation: &str) -> Result<u32, InputError> {
     text.trim()
         .parse::<u32>()
         .ok()
         .filter(|number| (min..=max).contains(number))
-        .ok_or_else(|| InputError::new(range))
+        .ok_or_else(|| InputError::new(explanation))
+}
+
+impl EchoSettings {
+    /// The echo request these settings make for `address`. Don't Fragment applies to IPv4 only:
+    /// Windows cannot forbid an IPv6 echo from being fragmented at its source.
+    fn echo_to(&self, address: IpAddr) -> EchoRequest {
+        EchoRequest {
+            address,
+            payload_size: self.payload_size,
+            dont_fragment: self.dont_fragment && address.is_ipv4(),
+            timeout: self.timeout,
+        }
+    }
 }
 
 /// Progress a Ping Run reports as it goes.
@@ -140,10 +153,10 @@ impl PingResult {
             settings.count,
             settings.payload_size,
             settings.timeout.as_millis(),
-            if settings.dont_fragment {
-                ", Don't Fragment"
-            } else {
-                ""
+            match (settings.dont_fragment, self.header.resolved) {
+                (false, _) => "",
+                (true, Some(IpAddr::V6(_))) => ", Don't Fragment not applied (IPv6)",
+                (true, _) => ", Don't Fragment",
             },
         ));
         if !self.echoes.is_empty() {
@@ -236,13 +249,6 @@ pub async fn run(
     mut on_event: impl FnMut(PingEvent),
 ) -> PingResult {
     let settings = ping.settings;
-    let mut header = RunHeader {
-        target: ping.target.to_string(),
-        resolved: None,
-        started_at: network.now(),
-        source_hostname: network.hostname(),
-        source_address: None,
-    };
     let finish = |header, echoes, ending| PingResult {
         header,
         settings,
@@ -250,15 +256,10 @@ pub async fn run(
         ending,
     };
 
-    let Some(resolution) = stop.run_until_cancelled(ping.target.resolve(network)).await else {
-        return finish(header, vec![], RunEnding::Stopped);
+    let (header, resolved) = match run::open(network, &ping.target, stop).await {
+        Opening::Resolved { header, resolved } => (header, resolved),
+        Opening::Ended { header, ending } => return finish(header, vec![], ending),
     };
-    let resolved = match resolution {
-        Ok(address) => address,
-        Err(reason) => return finish(header, vec![], RunEnding::ResolutionFailed { reason }),
-    };
-    header.resolved = Some(resolved);
-    header.source_address = network.source_address(resolved);
     on_event(PingEvent::Resolved(resolved));
 
     let mut echoes = Vec::new();
@@ -273,12 +274,7 @@ pub async fn run(
             }
         }
         sent_at = tokio::time::Instant::now();
-        let echo = network.icmp_echo(EchoRequest {
-            destination: resolved,
-            payload_size: settings.payload_size,
-            dont_fragment: settings.dont_fragment,
-            timeout: settings.timeout,
-        });
+        let echo = network.icmp_echo(settings.echo_to(resolved));
         let Some(outcome) = stop.run_until_cancelled(echo).await else {
             return finish(header, echoes, RunEnding::Stopped);
         };

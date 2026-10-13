@@ -147,10 +147,7 @@ pub fn start_ping(
     };
     let ping = request.validate().map_err(|error| error.message)?;
     let echoes_requested = ping.settings().count;
-    let (id, stop) = runs.start();
-    let runs = Arc::clone(&runs);
-
-    tauri::async_runtime::spawn(async move {
+    let id = runs.spawn(move |stop| async move {
         let result = ping::run(&SystemNetwork, &ping, &stop, |event| {
             let _ = on_update.send(event.into());
         })
@@ -158,7 +155,6 @@ pub fn start_ping(
         let _ = on_update.send(PingUpdate::Finished {
             result: result.into(),
         });
-        runs.finish(id);
     });
     Ok(StartedPing {
         id,

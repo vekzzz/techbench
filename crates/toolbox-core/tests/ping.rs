@@ -62,7 +62,7 @@ async fn each_echo_carries_the_chosen_size_timeout_and_dont_fragment_setting() {
     run(&network, custom).await;
 
     let sent = EchoRequest {
-        destination: ip("10.0.0.5"),
+        address: ip("10.0.0.5"),
         payload_size: 1472,
         dont_fragment: true,
         timeout: ms(500),
@@ -78,7 +78,7 @@ async fn the_defaults_are_32_bytes_a_2_second_timeout_and_fragmenting_allowed() 
     run(&network, request("10.0.0.5")).await;
 
     let sent = EchoRequest {
-        destination: ip("10.0.0.5"),
+        address: ip("10.0.0.5"),
         payload_size: 32,
         dont_fragment: false,
         timeout: ms(2000),
@@ -324,4 +324,91 @@ fn the_edges_of_each_range_are_accepted() {
     for request in edges {
         assert!(request.validate().is_ok(), "{request:?}");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn dont_fragment_is_not_applied_over_ipv6_and_the_result_says_so() {
+    let network = FakeNetwork::new().with_echoes("fd00::5", [reply(2)]);
+    let probe = PingRequest {
+        count: "1".to_string(),
+        dont_fragment: true,
+        ..request("fd00::5")
+    };
+
+    let result = run(&network, probe).await;
+
+    assert_eq!(
+        (
+            network.echo_requests()[0].dont_fragment,
+            result.to_text().contains(
+                "Echoes:    1 x 32 bytes, 2000 ms timeout, Don't Fragment not applied (IPv6)\n"
+            )
+        ),
+        (false, true)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn copy_as_text_of_a_stopped_run_lists_the_finished_echoes_then_how_far_it_got() {
+    let network = FakeNetwork::new().with_echoes("10.0.0.5", [reply(3), EchoScript::Hang]);
+    let ping = request("10.0.0.5").validate().unwrap();
+    let stop = CancellationToken::new();
+
+    let (result, ()) = tokio::join!(ping::run(&network, &ping, &stop, |_| {}), async {
+        tokio::time::sleep(ms(1500)).await;
+        stop.cancel();
+    });
+
+    assert_eq!(
+        result.to_text(),
+        "\
+Ping
+Target:    10.0.0.5
+Resolved:  10.0.0.5
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC (10.0.0.23)
+Echoes:    4 x 32 bytes, 2000 ms timeout
+
+SEQ  STATUS  TIME  TTL
+1    Reply   3 ms  128
+
+Stopped after 1 of 4 echoes: 1 sent, 1 received, 0% loss; round trip min 3 ms, avg 3 ms, max 3 ms
+"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn stopping_before_the_first_echo_finishes_says_so() {
+    let network = FakeNetwork::new().with_echoes("10.0.0.5", [EchoScript::Hang]);
+    let ping = request("10.0.0.5").validate().unwrap();
+    let stop = CancellationToken::new();
+
+    let (result, ()) = tokio::join!(ping::run(&network, &ping, &stop, |_| {}), async {
+        tokio::time::sleep(ms(500)).await;
+        stop.cancel();
+    });
+
+    assert_eq!(result.summary(), "Stopped before the first echo finished.");
+}
+
+#[tokio::test(start_paused = true)]
+async fn copy_as_text_of_a_resolution_failure_says_why_instead_of_listing_echoes() {
+    let network = FakeNetwork::new()
+        .with_unresolvable_name("nosuchhost.corp.local", "No such host is known.");
+
+    let result = run(&network, request("nosuchhost.corp.local")).await;
+
+    assert_eq!(
+        result.to_text(),
+        "\
+Ping
+Target:    nosuchhost.corp.local
+Resolved:  (not resolved)
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC
+Echoes:    4 x 32 bytes, 2000 ms timeout
+
+Could not resolve nosuchhost.corp.local: No such host is known.
+"
+    );
 }

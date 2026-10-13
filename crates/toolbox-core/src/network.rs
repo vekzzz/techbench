@@ -21,7 +21,8 @@ pub enum ConnectOutcome {
 /// One ICMP echo request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EchoRequest {
-    pub destination: IpAddr,
+    /// The Resolved Address the echo is sent to.
+    pub address: IpAddr,
     /// Bytes of data carried by the echo.
     pub payload_size: u16,
     /// Forbids routers from fragmenting the packet, so an oversized one is refused instead.
@@ -32,7 +33,7 @@ pub struct EchoRequest {
 /// What happened to one ICMP echo request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EchoOutcome {
-    /// The destination answered. IPv6 replies carry no TTL.
+    /// The Target answered. IPv6 replies carry no TTL.
     Reply {
         round_trip: Duration,
         ttl: Option<u8>,

@@ -36,8 +36,10 @@ export type PortCheckRun = {
   result: toolbox.PortCheckResult | null;
 };
 
+const portCheckInput: toolbox.PortCheckInput = { target: "", ports: "", family: "auto" };
+
 export const usePortCheck = createRunStore({
-  input: { target: "", ports: "", family: "auto" } as toolbox.PortCheckInput,
+  input: portCheckInput,
   begin: (key): PortCheckRun => ({ key, id: null, portsRequested: null, resolved: null, ports: [], result: null }),
   start: toolbox.startPortCheck,
   accepted: (run, started) => ({ ...run, id: started.id, portsRequested: started.portsRequested }),
@@ -64,9 +66,18 @@ export type PingRun = {
   result: toolbox.PingResult | null;
 };
 
+// The count, size and timeout are filled from the toolbox core's defaults when Ping first opens.
+const pingInput: toolbox.PingInput = {
+  target: "",
+  count: "",
+  payloadSize: "",
+  timeoutMs: "",
+  dontFragment: false,
+  family: "auto",
+};
+
 export const usePing = createRunStore({
-  // The count, size and timeout are filled from the toolbox core's defaults when Ping first opens.
-  input: { target: "", count: "", payloadSize: "", timeoutMs: "", dontFragment: false, family: "auto" } as toolbox.PingInput,
+  input: pingInput,
   begin: (key): PingRun => ({ key, id: null, echoesRequested: null, resolved: null, echoes: [], result: null }),
   start: toolbox.startPing,
   accepted: (run, started) => ({ ...run, id: started.id, echoesRequested: started.echoesRequested }),

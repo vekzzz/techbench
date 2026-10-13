@@ -136,10 +136,7 @@ pub fn start_port_check(
     };
     let check = request.validate().map_err(|error| error.message)?;
     let ports_requested = check.ports().len();
-    let (id, stop) = runs.start();
-    let runs = Arc::clone(&runs);
-
-    tauri::async_runtime::spawn(async move {
+    let id = runs.spawn(move |stop| async move {
         let result = port_check::run(&SystemNetwork, &check, &stop, |event| {
             let _ = on_update.send(event.into());
         })
@@ -147,7 +144,6 @@ pub fn start_port_check(
         let _ = on_update.send(PortCheckUpdate::Finished {
             result: result.into(),
         });
-        runs.finish(id);
     });
     Ok(StartedPortCheck {
         id,

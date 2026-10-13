@@ -44,3 +44,28 @@ Verified in the running app against 8.8.8.8:
 - Ping kept its state across a Tool switch, and Port Check still works on the shared store.
 
 Housekeeping: F: ran out of space because `target\debug` had reached 19.5 GB. I ran `cargo clean --profile dev`, and the dev profile now keeps line tables only for our crates and no debug info for dependencies.
+
+**2026-10-13 — review follow-up (Claude).** Fixed:
+- **Don't Fragment over IPv6.** Windows' ICMP API cannot forbid an IPv6 echo from being fragmented at its source (`ping -6 -f` is rejected for the same reason). Don't Fragment is now applied to IPv4 echoes only, and an IPv6 Result says "Don't Fragment not applied (IPv6)". The UI hint says IPv4 only.
+- **Goldens the testing rules ask for.** There are now full Copy as text goldens for a stopped Run and a resolution failure, plus a test for "Stopped before the first echo finished."
+- **Duplication now shared by two Tools:**
+  - `run::open()` starts every Run: the header, resolve-or-stop, and the source address.
+  - `Runs::spawn()` in the shell registers, runs and forgets a Run.
+  - `EchoSettings::echo_to()` builds each echo request.
+- **Smaller fixes:**
+  - `EchoRequest.destination` is now `address`, and "host" is gone from the fake (both are glossary words to avoid).
+  - `number_in(.., explanation)`.
+  - SAFETY comments on every `unsafe` in `windows_icmp.rs`, a separate `reply_buffer` binding, and one catch-all arm for unreachable statuses.
+  - Typed initial inputs in `store.ts` instead of `as` casts.
+  - Port Check shows the core's resolution-failure summary, the same wording as Ping.
+
+Decided, and noted here:
+- **Ping's 1 s pacing and the tests' controllable clock use tokio's time.** The spec described a clock and sleep on the network trait; tokio's paused clock gives tests the same control.
+- **Accepted as they are:**
+  - A local ICMP failure and statuses such as "general failure" (network down) are reported as Unreachable.
+  - IPv6 rows show no TTL, because ICMPv6 replies don't carry one.
+  - The `Echoes:` settings line, the input limits and `ping_defaults` stay.
+
+Deferred:
+- **Traceroute needs more from `icmp_echo`** (see ticket 08): a TTL on the request, the responding address on a reply, and a time-exceeded outcome. `IP_TTL_EXPIRED_TRANSIT` currently falls into Unreachable.
+- **Mid-Run copy** stays with ticket 07.

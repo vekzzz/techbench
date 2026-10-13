@@ -57,7 +57,7 @@ export function Ping() {
               checked={input.dontFragment}
               onCheckedChange={(checked) => update({ dontFragment: checked === true })}
             />
-            <Label htmlFor="ping-dont-fragment" title="Forbid fragmenting, to probe the path MTU">
+            <Label htmlFor="ping-dont-fragment" title="Forbid fragmenting, to probe the path MTU. IPv4 only: Windows cannot forbid it for IPv6.">
               Don't Fragment
             </Label>
           </div>

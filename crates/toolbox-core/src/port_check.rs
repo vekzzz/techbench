@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
 use crate::network::{ConnectOutcome, Network};
-use crate::run::{RunEnding, RunHeader, milliseconds, text_table};
+use crate::run::{self, Opening, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
 
 /// How long a port has to accept a connection before it counts as Filtered.
@@ -211,27 +211,10 @@ pub async fn run(
     stop: &CancellationToken,
     mut on_event: impl FnMut(PortCheckEvent),
 ) -> PortCheckResult {
-    let started_at = network.now();
-    let mut header = RunHeader {
-        target: check.target.to_string(),
-        resolved: None,
-        started_at,
-        source_hostname: network.hostname(),
-        source_address: None,
+    let (header, resolved) = match run::open(network, &check.target, stop).await {
+        Opening::Resolved { header, resolved } => (header, resolved),
+        Opening::Ended { header, ending } => return without_ports(header, check, ending),
     };
-
-    let resolving = check.target.resolve(network);
-    let Some(resolution) = stop.run_until_cancelled(resolving).await else {
-        return without_ports(header, check, RunEnding::Stopped);
-    };
-    let resolved = match resolution {
-        Ok(address) => address,
-        Err(reason) => {
-            return without_ports(header, check, RunEnding::ResolutionFailed { reason });
-        }
-    };
-    header.resolved = Some(resolved);
-    header.source_address = network.source_address(resolved);
     on_event(PortCheckEvent::Resolved(resolved));
 
     let mut checking = stream::iter(check.ports.iter().copied())

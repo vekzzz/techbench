@@ -40,7 +40,7 @@ enum NameScript {
 /// How the fake answers one ICMP echo.
 pub enum EchoScript {
     Answer(EchoOutcome),
-    /// Waits out the whole timeout, then times out, like a host that drops pings.
+    /// Waits out the whole timeout, then times out, like a Target that drops pings.
     Silent,
     /// Never answers, so only stopping the Run ends it.
     Hang,
@@ -65,16 +65,12 @@ impl FakeNetwork {
         }
     }
 
-    /// `destination` answers successive echoes as scripted, in order.
-    pub fn with_echoes(
-        self,
-        destination: &str,
-        scripts: impl IntoIterator<Item = EchoScript>,
-    ) -> Self {
+    /// `address` answers successive echoes as scripted, in order.
+    pub fn with_echoes(self, address: &str, scripts: impl IntoIterator<Item = EchoScript>) -> Self {
         self.echoes
             .lock()
             .unwrap()
-            .entry(ip(destination))
+            .entry(ip(address))
             .or_default()
             .extend(scripts);
         self
@@ -169,7 +165,7 @@ impl Network for FakeNetwork {
             .echoes
             .lock()
             .unwrap()
-            .get_mut(&request.destination)
+            .get_mut(&request.address)
             .and_then(VecDeque::pop_front);
         match script {
             Some(EchoScript::Answer(outcome)) => outcome,
@@ -181,7 +177,7 @@ impl Network for FakeNetwork {
             None => panic!(
                 "test did not script echo {} to {}",
                 self.echo_requests().len(),
-                request.destination
+                request.address
             ),
         }
     }

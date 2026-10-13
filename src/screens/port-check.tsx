@@ -91,7 +91,7 @@ function RunView({ run }: { run: PortCheckRun }) {
   const result = run.result;
 
   if (result?.ending === "resolutionFailed") {
-    return <p className="text-xs text-destructive">Could not resolve the Target: {result.failureReason}</p>;
+    return <p className="text-xs text-destructive">{result.summary}</p>;
   }
 
   const ports = [...run.ports].sort((a, b) => a.port - b.port);

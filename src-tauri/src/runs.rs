@@ -1,8 +1,9 @@
 //! The Runs in progress, so the UI can stop one by its id.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use toolbox_core::run::{CancellationToken, RunEnding};
@@ -18,15 +19,31 @@ pub struct Runs {
 
 impl Runs {
     /// Registers a new Run and hands back its id and the token that stops it.
-    pub fn start(&self) -> (RunId, CancellationToken) {
+    fn start(&self) -> (RunId, CancellationToken) {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let stop = CancellationToken::new();
         self.in_progress.lock().unwrap().insert(id, stop.clone());
         (id, stop)
     }
 
-    pub fn finish(&self, id: RunId) {
+    fn finish(&self, id: RunId) {
         self.in_progress.lock().unwrap().remove(&id);
+    }
+
+    /// Starts `work` in the background as a new Run, handing it the token that stops it, and
+    /// returns the Run's id. The Run is forgotten once `work` finishes.
+    pub fn spawn<F>(self: &Arc<Self>, work: impl FnOnce(CancellationToken) -> F) -> RunId
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let (id, stop) = self.start();
+        let work = work(stop);
+        let runs = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            work.await;
+            runs.finish(id);
+        });
+        id
     }
 
     pub fn stop(&self, id: RunId) {
@@ -37,7 +54,7 @@ impl Runs {
 }
 
 #[tauri::command]
-pub fn stop_run(id: RunId, runs: tauri::State<'_, std::sync::Arc<Runs>>) {
+pub fn stop_run(id: RunId, runs: tauri::State<'_, Arc<Runs>>) {
     runs.stop(id);
 }
 

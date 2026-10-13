@@ -7,10 +7,9 @@ use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{GetLastError, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    ICMP_ECHO_REPLY, ICMPV6_ECHO_REPLY_LH, IP_DEST_HOST_UNREACHABLE, IP_DEST_NET_UNREACHABLE,
-    IP_DEST_PORT_UNREACHABLE, IP_DEST_PROT_UNREACHABLE, IP_DEST_UNREACHABLE, IP_FLAG_DF,
-    IP_OPTION_INFORMATION, IP_PACKET_TOO_BIG, IP_REQ_TIMED_OUT, IP_SUCCESS, Icmp6CreateFile,
-    Icmp6SendEcho2, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho2,
+    ICMP_ECHO_REPLY, ICMPV6_ECHO_REPLY_LH, IP_FLAG_DF, IP_OPTION_INFORMATION, IP_PACKET_TOO_BIG,
+    IP_REQ_TIMED_OUT, IP_SUCCESS, Icmp6CreateFile, Icmp6SendEcho2, IcmpCloseHandle, IcmpCreateFile,
+    IcmpSendEcho2,
 };
 use windows_sys::Win32::Networking::WinSock::{AF_INET6, IN6_ADDR, IN6_ADDR_0, SOCKADDR_IN6};
 
@@ -24,19 +23,20 @@ const DEFAULT_TTL: u8 = 128;
 const REPLY_SLACK: usize = 64;
 
 pub(crate) fn echo(request: EchoRequest) -> EchoOutcome {
-    match request.destination {
+    match request.address {
         IpAddr::V4(destination) => echo_v4(destination, request),
         IpAddr::V6(destination) => echo_v6(destination, request),
     }
 }
 
 fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
+    // SAFETY: IcmpCreateFile takes no arguments; IcmpHandle checks the handle it returns.
     let Some(handle) = IcmpHandle::open(unsafe { IcmpCreateFile() }) else {
         return EchoOutcome::Unreachable { from: None };
     };
     let payload = payload(request.payload_size);
     let options = options(request.dont_fragment);
-    let mut reply = ReplyBuffer::new(size_of::<ICMP_ECHO_REPLY>() + payload.len());
+    let mut reply_buffer = ReplyBuffer::new(size_of::<ICMP_ECHO_REPLY>() + payload.len());
 
     // SAFETY: the handle is open; the payload, options and reply buffer outlive the call and
     // their sizes are passed alongside them; with no event or APC routine the call is synchronous.
@@ -50,16 +50,18 @@ fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
             payload.as_ptr().cast(),
             request.payload_size,
             &options,
-            reply.as_mut_ptr(),
-            reply.len_bytes(),
+            reply_buffer.as_mut_ptr(),
+            reply_buffer.len_bytes(),
             timeout_ms(request.timeout),
         )
     };
     if replies == 0 {
+        // SAFETY: GetLastError only reads this thread's last-error value.
         return outcome_of(unsafe { GetLastError() }, None);
     }
-    // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer.
-    let reply = unsafe { &*reply.as_ptr().cast::<ICMP_ECHO_REPLY>() };
+    // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer;
+    // `reply_buffer` lives until the end of this function, outliving the reference.
+    let reply = unsafe { &*reply_buffer.as_ptr().cast::<ICMP_ECHO_REPLY>() };
     let from = IpAddr::V4(Ipv4Addr::from(reply.Address.to_ne_bytes()));
     match reply.Status {
         IP_SUCCESS => EchoOutcome::Reply {
@@ -71,12 +73,13 @@ fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
 }
 
 fn echo_v6(destination: Ipv6Addr, request: EchoRequest) -> EchoOutcome {
+    // SAFETY: Icmp6CreateFile takes no arguments; IcmpHandle checks the handle it returns.
     let Some(handle) = IcmpHandle::open(unsafe { Icmp6CreateFile() }) else {
         return EchoOutcome::Unreachable { from: None };
     };
     let payload = payload(request.payload_size);
     let options = options(request.dont_fragment);
-    let mut reply = ReplyBuffer::new(size_of::<ICMPV6_ECHO_REPLY_LH>() + payload.len());
+    let mut reply_buffer = ReplyBuffer::new(size_of::<ICMPV6_ECHO_REPLY_LH>() + payload.len());
     // An unspecified source lets Windows pick the address the route leaves from.
     let source = socket_address(Ipv6Addr::UNSPECIFIED);
     let destination = socket_address(destination);
@@ -93,16 +96,18 @@ fn echo_v6(destination: Ipv6Addr, request: EchoRequest) -> EchoOutcome {
             payload.as_ptr().cast(),
             request.payload_size,
             &options,
-            reply.as_mut_ptr(),
-            reply.len_bytes(),
+            reply_buffer.as_mut_ptr(),
+            reply_buffer.len_bytes(),
             timeout_ms(request.timeout),
         )
     };
     if replies == 0 {
+        // SAFETY: GetLastError only reads this thread's last-error value.
         return outcome_of(unsafe { GetLastError() }, None);
     }
-    // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer.
-    let reply = unsafe { &*reply.as_ptr().cast::<ICMPV6_ECHO_REPLY_LH>() };
+    // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer;
+    // `reply_buffer` lives until the end of this function, outliving the reference.
+    let reply = unsafe { &*reply_buffer.as_ptr().cast::<ICMPV6_ECHO_REPLY_LH>() };
     let words = reply.Address.sin6_addr.map(u16::from_be);
     let from = IpAddr::V6(Ipv6Addr::from(words));
     match reply.Status {
@@ -119,12 +124,8 @@ fn outcome_of(status: u32, from: Option<IpAddr>) -> EchoOutcome {
     match status {
         IP_REQ_TIMED_OUT => EchoOutcome::TimedOut,
         IP_PACKET_TOO_BIG => EchoOutcome::FragmentationNeeded,
-        IP_DEST_NET_UNREACHABLE
-        | IP_DEST_HOST_UNREACHABLE
-        | IP_DEST_PROT_UNREACHABLE
-        | IP_DEST_PORT_UNREACHABLE
-        | IP_DEST_UNREACHABLE => EchoOutcome::Unreachable { from },
-        // Anything else (a bad route, a general failure) still means the echo didn't arrive.
+        // The IP_DEST_*_UNREACHABLE statuses, and anything else (a bad route, a general
+        // failure when the network is down): the echo didn't arrive.
         _ => EchoOutcome::Unreachable { from },
     }
 }
