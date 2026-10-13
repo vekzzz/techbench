@@ -9,7 +9,9 @@ use std::time::Duration;
 use chrono::{DateTime, FixedOffset};
 use std::collections::VecDeque;
 
-use toolbox_core::network::{ConnectOutcome, EchoOutcome, EchoRequest, Network, ResolveError};
+use toolbox_core::network::{
+    Adapter, ConnectOutcome, EchoOutcome, EchoRequest, Network, PublicIp, ResolveError,
+};
 
 pub const PC_NAME: &str = "TECH-PC";
 pub const PC_ADDRESS: &str = "10.0.0.23";
@@ -52,6 +54,9 @@ pub struct FakeNetwork {
     connect_timeouts: Mutex<Vec<Duration>>,
     echoes: Mutex<HashMap<IpAddr, VecDeque<EchoScript>>>,
     echo_requests: Mutex<Vec<EchoRequest>>,
+    adapters: Vec<Adapter>,
+    /// None: the lookup never answers, so only stopping the Run ends it.
+    public_ip: Option<Result<PublicIp, String>>,
 }
 
 impl FakeNetwork {
@@ -62,7 +67,25 @@ impl FakeNetwork {
             connect_timeouts: Mutex::new(Vec::new()),
             echoes: Mutex::new(HashMap::new()),
             echo_requests: Mutex::new(Vec::new()),
+            adapters: Vec::new(),
+            public_ip: Some(Err("no public lookup scripted".to_string())),
         }
+    }
+
+    /// The PC's adapters, in the order the operating system lists them.
+    pub fn with_adapters(mut self, adapters: Vec<Adapter>) -> Self {
+        self.adapters = adapters;
+        self
+    }
+
+    pub fn with_public_ip(mut self, lookup: Result<PublicIp, String>) -> Self {
+        self.public_ip = Some(lookup);
+        self
+    }
+
+    pub fn with_hanging_public_ip(mut self) -> Self {
+        self.public_ip = None;
+        self
     }
 
     /// `address` answers successive echoes as scripted, in order.
@@ -179,6 +202,17 @@ impl Network for FakeNetwork {
                 self.echo_requests().len(),
                 request.address
             ),
+        }
+    }
+
+    async fn adapters(&self) -> Vec<Adapter> {
+        self.adapters.clone()
+    }
+
+    async fn public_ip(&self) -> Result<PublicIp, String> {
+        match &self.public_ip {
+            Some(lookup) => lookup.clone(),
+            None => std::future::pending().await,
         }
     }
 

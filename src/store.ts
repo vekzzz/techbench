@@ -92,3 +92,36 @@ export const usePing = createRunStore({
     }
   },
 });
+
+/** An IP Info Run as the UI follows it: local details first, then the public lookup. */
+export type IpInfoRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  adapters: toolbox.AdapterInfo[] | null;
+  defaultRoute: string | null;
+  public: toolbox.PublicInfo | null;
+  result: toolbox.IpInfoResult | null;
+};
+
+export const useIpInfo = createRunStore({
+  input: {},
+  begin: (key): IpInfoRun => ({ key, id: null, adapters: null, defaultRoute: null, public: null, result: null }),
+  start: (_input, onUpdate: (update: toolbox.IpInfoUpdate) => void) => toolbox.startIpInfo(onUpdate),
+  accepted: (run, started) => ({ ...run, id: started.id }),
+  apply: (run, update) => {
+    switch (update.kind) {
+      case "adapters":
+        return { ...run, adapters: update.adapters, defaultRoute: update.defaultRoute };
+      case "public":
+        return { ...run, public: update.public };
+      case "finished":
+        return {
+          ...run,
+          adapters: update.result.adapters,
+          defaultRoute: update.result.defaultRoute,
+          public: update.result.public,
+          result: update.result,
+        };
+    }
+  },
+});

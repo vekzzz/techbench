@@ -116,6 +116,48 @@ export function startPing(input: PingInput, onUpdate: (update: PingUpdate) => vo
   return invoke("start_ping", { input, onUpdate: channel });
 }
 
+export type AdapterKind = "ethernet" | "wireless" | "loopback" | "tunnel" | "other";
+
+/** One of this PC's network adapters. Times are already worded by the toolbox core. */
+export type AdapterInfo = {
+  name: string;
+  description: string;
+  kind: AdapterKind;
+  up: boolean;
+  mac: string | null;
+  /** Each as address/prefix. */
+  ipv4: string[];
+  ipv6: string[];
+  gateways: string[];
+  dnsServers: string[];
+  /** Present when DHCP is enabled. */
+  dhcp: { server: string | null; obtained: string | null; expires: string | null } | null;
+};
+
+/** The public address line, worded by the toolbox core, and whether the lookup failed. */
+export type PublicInfo = { text: string; failed: boolean };
+
+export type IpInfoResult = {
+  /** The adapter carrying the default route first, then other active adapters, then inactive ones. */
+  adapters: AdapterInfo[];
+  defaultRoute: string | null;
+  public: PublicInfo;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type IpInfoUpdate =
+  | { kind: "adapters"; adapters: AdapterInfo[]; defaultRoute: string | null }
+  | { kind: "public"; public: PublicInfo }
+  | { kind: "finished"; result: IpInfoResult };
+
+/** Reads this PC's adapters, then its public address. */
+export function startIpInfo(onUpdate: (update: IpInfoUpdate) => void): Promise<{ id: RunId }> {
+  const channel = new Channel<IpInfoUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_ip_info", { onUpdate: channel });
+}
+
 export type SubnetReport = {
   network: string;
   prefix: number;

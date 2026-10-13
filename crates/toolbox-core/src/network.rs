@@ -46,6 +46,59 @@ pub enum EchoOutcome {
     FragmentationNeeded,
 }
 
+/// What kind of link a network adapter is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterKind {
+    Ethernet,
+    Wireless,
+    Loopback,
+    Tunnel,
+    Other,
+}
+
+/// An address assigned to a network adapter, with its on-link prefix length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdapterAddress {
+    pub address: IpAddr,
+    pub prefix: u8,
+}
+
+/// The DHCP lease of an adapter that has DHCP enabled; any part may be unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DhcpLease {
+    pub server: Option<IpAddr>,
+    pub obtained: Option<DateTime<FixedOffset>>,
+    pub expires: Option<DateTime<FixedOffset>>,
+}
+
+/// One of this PC's network adapters, as the operating system reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Adapter {
+    /// The name Windows shows, such as "Ethernet" or "Wi-Fi".
+    pub name: String,
+    /// The hardware or driver description.
+    pub description: String,
+    pub kind: AdapterKind,
+    pub up: bool,
+    pub mac: Option<[u8; 6]>,
+    pub addresses: Vec<AdapterAddress>,
+    pub gateways: Vec<IpAddr>,
+    pub dns_servers: Vec<IpAddr>,
+    /// Present when DHCP is enabled.
+    pub dhcp: Option<DhcpLease>,
+    /// Route metrics: when several adapters have a gateway, the lowest metric carries the default route.
+    pub ipv4_metric: u32,
+    pub ipv6_metric: u32,
+}
+
+/// This PC's address as the internet sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicIp {
+    pub address: IpAddr,
+    pub isp: Option<String>,
+    pub city: Option<String>,
+}
+
 /// Why the system resolver could not turn a hostname into addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveError {
@@ -68,6 +121,13 @@ pub trait Network: Send + Sync {
 
     /// Sends one ICMP echo request and waits for its outcome.
     fn icmp_echo(&self, request: EchoRequest) -> impl Future<Output = EchoOutcome> + Send;
+
+    /// This PC's network adapters.
+    fn adapters(&self) -> impl Future<Output = Vec<Adapter>> + Send;
+
+    /// This PC's public address, ISP and city, from one HTTPS call to an outside service:
+    /// the app's only external call. Fails with a reason the Technician can read.
+    fn public_ip(&self) -> impl Future<Output = Result<PublicIp, String>> + Send;
 
     /// The address of this PC that traffic to `destination` would leave from. Sends nothing.
     fn source_address(&self, destination: IpAddr) -> Option<IpAddr>;
@@ -141,6 +201,23 @@ impl Network for SystemNetwork {
             let _ = request;
             unimplemented!("ICMP echo is implemented for Windows only (ADR 0002)")
         }
+    }
+
+    async fn adapters(&self) -> Vec<Adapter> {
+        #[cfg(windows)]
+        {
+            tokio::task::spawn_blocking(crate::windows_adapters::adapters)
+                .await
+                .unwrap_or_default()
+        }
+        #[cfg(not(windows))]
+        unimplemented!("adapter enumeration is implemented for Windows only (ADR 0002)")
+    }
+
+    async fn public_ip(&self) -> Result<PublicIp, String> {
+        tokio::task::spawn_blocking(crate::public_ip::look_up)
+            .await
+            .unwrap_or_else(|_| Err("the public lookup failed unexpectedly".to_string()))
     }
 
     fn source_address(&self, destination: IpAddr) -> Option<IpAddr> {

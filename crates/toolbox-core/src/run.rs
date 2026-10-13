@@ -7,6 +7,14 @@ use chrono::{DateTime, FixedOffset};
 
 use crate::network::Network;
 use crate::target::ChosenTarget;
+/// How Results show a moment in time: local time with its UTC offset.
+pub(crate) const TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %:z";
+
+/// A moment in time as Results show it, such as `2026-10-13 14:05:09 +08:00`.
+pub fn format_time(time: DateTime<FixedOffset>) -> String {
+    time.format(TIME_FORMAT).to_string()
+}
+
 /// Cancelling it stops a Run, which then finishes with a stopped Result.
 pub use tokio_util::sync::CancellationToken;
 
@@ -37,7 +45,7 @@ impl RunHeader {
         format!(
             "{tool}\nTarget:    {}\nResolved:  {resolved}\nTime:      {}\nFrom:      {from}\n",
             self.target,
-            self.started_at.format("%Y-%m-%d %H:%M:%S %:z"),
+            self.started_at.format(TIME_FORMAT),
         )
     }
 }

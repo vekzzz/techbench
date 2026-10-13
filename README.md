@@ -27,6 +27,7 @@ npm install
 | --- | --- |
 | `npm run tauri dev` | Runs the app with hot reload. |
 | `npm test` | Runs every Rust test in the workspace. |
+| `cargo test --workspace -- --include-ignored` | Also runs the opt-in tests that reach the internet (IP Info's public lookup). |
 | `npm run package` | Builds the Windows installer. |
 
 ## Building the installer
