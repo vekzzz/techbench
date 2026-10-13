@@ -358,7 +358,7 @@ Resolved:  10.0.0.5
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-Stopped before any port answered.
+Stopped before any port was checked.
 "
     );
 }
@@ -454,7 +454,7 @@ fn a_run_may_check_up_to_1024_ports() {
 fn more_than_1024_ports_are_rejected_with_a_clear_message() {
     let error = request("10.0.0.5", "1-1025").validate().unwrap_err();
 
-    assert!(error.message.contains("1,024"), "{}", error.message);
+    assert!(error.message.contains("1024"), "{}", error.message);
 }
 
 #[tokio::test(start_paused = true)]
@@ -513,7 +513,7 @@ async fn outcomes_are_reported_as_each_port_finishes_while_the_result_stays_in_p
 }
 
 #[tokio::test]
-async fn stopping_partway_keeps_the_ports_already_answered_and_says_how_far_it_got() {
+async fn stopping_partway_keeps_the_ports_already_checked_and_says_how_far_it_got() {
     let network = FakeNetwork::new()
         .with_connect("10.0.0.5:22", ConnectOutcome::Refused)
         .with_hanging_connect("10.0.0.5:445");
@@ -598,5 +598,15 @@ PORT  SERVICE  OUTCOME   CONNECT TIME
 
 3 ports checked: 1 Open, 1 Closed, 1 Filtered
 "
+    );
+}
+
+#[test]
+fn an_empty_port_field_asks_for_a_port() {
+    let error = request("10.0.0.5", "  ").validate().unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "enter at least one port, such as 443 or 22, 80, 8000-8010"
     );
 }

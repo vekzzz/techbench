@@ -1,4 +1,4 @@
-//! Port Check: tests whether a TCP port on a single Target accepts connections.
+//! Port Check: tests whether chosen TCP ports on a single Target accept connections.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -58,6 +58,11 @@ impl PortCheck {
 
 /// Parses comma-separated ports and inclusive ranges such as `8000-8010`.
 fn parse_ports(text: &str) -> Result<Vec<u16>, InputError> {
+    if text.trim().is_empty() {
+        return Err(InputError::new(
+            "enter at least one port, such as 443 or 22, 80, 8000-8010",
+        ));
+    }
     let mut ports = Vec::new();
     for entry in text.split(',').map(str::trim) {
         let invalid = || {
@@ -85,7 +90,7 @@ fn parse_ports(text: &str) -> Result<Vec<u16>, InputError> {
     ports.dedup();
     if ports.len() > MAX_PORTS {
         return Err(InputError::new(format!(
-            "{} ports is more than a Port Check allows (1,024); narrow the list or ranges",
+            "{} ports is more than a Port Check allows ({MAX_PORTS}); narrow the list or ranges",
             ports.len()
         )));
     }
@@ -123,7 +128,7 @@ pub enum PortOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortCheckResult {
     pub header: RunHeader,
-    /// The ports that answered, in port order.
+    /// The ports checked so far, in port order.
     pub ports: Vec<PortReport>,
     /// How many ports the Run set out to check.
     pub ports_requested: usize,
@@ -135,22 +140,53 @@ impl PortCheckResult {
     pub fn to_text(&self) -> String {
         let mut text = self.header.to_text("Port Check");
         text.push('\n');
-        match &self.ending {
-            RunEnding::Completed => {}
-            RunEnding::ResolutionFailed { reason } => {
-                text.push_str(&format!(
-                    "Could not resolve {}: {reason}\n",
-                    self.header.target
-                ));
-                return text;
-            }
-            RunEnding::Stopped if self.ports.is_empty() => {
-                text.push_str("Stopped before any port answered.\n");
-                return text;
-            }
-            RunEnding::Stopped => {}
+        let has_table =
+            !self.ports.is_empty() && !matches!(self.ending, RunEnding::ResolutionFailed { .. });
+        if has_table {
+            text.push_str(&self.port_table());
+            text.push('\n');
         }
+        text.push_str(&self.summary());
+        text.push('\n');
+        text
+    }
 
+    /// The one-line conclusion: how the Run ended and how many ports were Open, Closed and Filtered.
+    pub fn summary(&self) -> String {
+        let checked = self.ports.len();
+        let tally = |progress: String| {
+            let count = |wanted: fn(&PortOutcome) -> bool| {
+                self.ports
+                    .iter()
+                    .filter(|report| wanted(&report.outcome))
+                    .count()
+            };
+            format!(
+                "{progress}: {} Open, {} Closed, {} Filtered",
+                count(|outcome| matches!(outcome, PortOutcome::Open { .. })),
+                count(|outcome| matches!(outcome, PortOutcome::Closed)),
+                count(|outcome| matches!(outcome, PortOutcome::Filtered)),
+            )
+        };
+        match &self.ending {
+            RunEnding::ResolutionFailed { reason } => {
+                format!("Could not resolve {}: {reason}", self.header.target)
+            }
+            RunEnding::Stopped if checked == 0 => {
+                "Stopped before any port was checked.".to_string()
+            }
+            RunEnding::Stopped => tally(format!(
+                "Stopped after {checked} of {} ports",
+                self.ports_requested
+            )),
+            RunEnding::Completed => tally(format!(
+                "{checked} port{} checked",
+                if checked == 1 { "" } else { "s" }
+            )),
+        }
+    }
+
+    fn port_table(&self) -> String {
         let rows: Vec<Vec<String>> = self
             .ports
             .iter()
@@ -169,34 +205,7 @@ impl PortCheckResult {
                 ]
             })
             .collect();
-        text.push_str(&text_table(
-            &["PORT", "SERVICE", "OUTCOME", "CONNECT TIME"],
-            &rows,
-        ));
-
-        let count = |wanted: fn(&PortOutcome) -> bool| {
-            self.ports
-                .iter()
-                .filter(|report| wanted(&report.outcome))
-                .count()
-        };
-        let checked = self.ports.len();
-        let progress = match self.ending {
-            RunEnding::Stopped => {
-                format!("Stopped after {checked} of {} ports", self.ports_requested)
-            }
-            _ => format!(
-                "{checked} port{} checked",
-                if checked == 1 { "" } else { "s" }
-            ),
-        };
-        text.push_str(&format!(
-            "\n{progress}: {} Open, {} Closed, {} Filtered\n",
-            count(|outcome| matches!(outcome, PortOutcome::Open { .. })),
-            count(|outcome| matches!(outcome, PortOutcome::Closed)),
-            count(|outcome| matches!(outcome, PortOutcome::Filtered)),
-        ));
-        text
+        text_table(&["PORT", "SERVICE", "OUTCOME", "CONNECT TIME"], &rows)
     }
 }
 
@@ -218,22 +227,12 @@ pub async fn run(
 
     let resolving = target::resolve(network, &check.target, check.family);
     let Some(resolution) = stop.run_until_cancelled(resolving).await else {
-        return PortCheckResult {
-            header,
-            ports: vec![],
-            ports_requested: check.ports.len(),
-            ending: RunEnding::Stopped,
-        };
+        return without_ports(header, check, RunEnding::Stopped);
     };
     let resolved = match resolution {
         Ok(address) => address,
         Err(reason) => {
-            return PortCheckResult {
-                header,
-                ports: vec![],
-                ports_requested: check.ports.len(),
-                ending: RunEnding::ResolutionFailed { reason },
-            };
+            return without_ports(header, check, RunEnding::ResolutionFailed { reason });
         }
     };
     header.resolved = Some(resolved);
@@ -270,6 +269,16 @@ pub async fn run(
     PortCheckResult {
         header,
         ports: reports,
+        ports_requested: check.ports.len(),
+        ending,
+    }
+}
+
+/// A Result that ended before any port was checked.
+fn without_ports(header: RunHeader, check: &PortCheck, ending: RunEnding) -> PortCheckResult {
+    PortCheckResult {
+        header,
+        ports: vec![],
         ports_requested: check.ports.len(),
         ending,
     }

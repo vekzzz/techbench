@@ -102,21 +102,13 @@ function RunView({ run }: { run: PortCheckRun }) {
       </p>
       {!result && (
         <p className="text-xs text-muted-foreground">
-          Checking… {run.portCount !== null && `${run.ports.length} of ${run.portCount} ports answered`}
+          Checking… {run.portsRequested !== null && `${run.ports.length} of ${run.portsRequested} ports checked`}
         </p>
       )}
       {ports.length > 0 && <PortTable ports={ports} />}
-      {result && <p className="text-xs text-muted-foreground">{summary(result.ending, ports, result.portsRequested)}</p>}
+      {result && <p className="text-xs text-muted-foreground">{result.summary}</p>}
     </div>
   );
-}
-
-function summary(ending: string, ports: PortReport[], requested: number) {
-  if (ending === "stopped" && ports.length === 0) return "Stopped before any port answered.";
-  const count = (outcome: PortOutcome) => ports.filter((report) => report.outcome === outcome).length;
-  const tally = `${count("open")} Open, ${count("closed")} Closed, ${count("filtered")} Filtered`;
-  if (ending === "stopped") return `Stopped after ${ports.length} of ${requested} ports: ${tally}`;
-  return `${ports.length} port${ports.length === 1 ? "" : "s"} checked: ${tally}`;
 }
 
 function PortTable({ ports }: { ports: PortReport[] }) {

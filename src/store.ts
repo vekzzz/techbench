@@ -10,7 +10,7 @@ export type PortCheckRun = {
   /** The shell's id for stopping it; null until the shell has accepted the Run. */
   id: toolbox.RunId | null;
   /** How many ports the Run will check; null until the shell has accepted the Run. */
-  portCount: number | null;
+  portsRequested: number | null;
   resolved: string | null;
   ports: toolbox.PortReport[];
   result: toolbox.PortCheckResult | null;
@@ -65,7 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       portCheck: {
         ...state.portCheck,
         error: null,
-        run: { key, id: null, portCount: null, resolved: null, ports: [], result: null },
+        run: { key, id: null, portsRequested: null, resolved: null, ports: [], result: null },
       },
     }));
     try {
@@ -79,7 +79,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             return updateRun((run) => ({ ...run, result: update.result }));
         }
       });
-      updateRun((run) => ({ ...run, id: started.id, portCount: started.portCount }));
+      updateRun((run) => ({ ...run, id: started.id, portsRequested: started.portsRequested }));
     } catch (reason) {
       set((state) =>
         state.portCheck.run?.key === key ? { portCheck: { ...state.portCheck, error: String(reason), run: null } } : state,

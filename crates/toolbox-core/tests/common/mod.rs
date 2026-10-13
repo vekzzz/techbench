@@ -78,11 +78,15 @@ impl FakeNetwork {
         self
     }
 
-    /// Every listed port on `host` stays silent until the connect times out.
-    pub fn with_silent_ports(mut self, host: &str, ports: impl IntoIterator<Item = u16>) -> Self {
+    /// Every listed port on `address` stays silent until the connect times out.
+    pub fn with_silent_ports(
+        mut self,
+        address: &str,
+        ports: impl IntoIterator<Item = u16>,
+    ) -> Self {
         for port in ports {
             self.connects
-                .insert(SocketAddr::new(ip(host), port), ConnectScript::Silent);
+                .insert(SocketAddr::new(ip(address), port), ConnectScript::Silent);
         }
         self
     }

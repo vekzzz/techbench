@@ -25,11 +25,13 @@ export type PortReport = {
 
 export type PortCheckResult = {
   resolved: string | null;
-  /** The ports that answered, in port order. */
+  /** The ports checked so far, in port order. */
   ports: PortReport[];
   portsRequested: number;
   ending: RunEnding;
   failureReason: string | null;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
   /** The Result as plain text, ready to paste into a ticket. */
   text: string;
 };
@@ -42,7 +44,7 @@ export type PortCheckUpdate =
 /** `ports` as typed: one port, a comma-separated list, or ranges such as 8000-8010. */
 export type PortCheckInput = { target: string; ports: string; family: AddressFamily };
 
-export type StartedPortCheck = { id: RunId; portCount: number };
+export type StartedPortCheck = { id: RunId; portsRequested: number };
 
 /** Starts a Port Check Run. Rejects with a message, before any Run starts, when the input is invalid. */
 export function startPortCheck(

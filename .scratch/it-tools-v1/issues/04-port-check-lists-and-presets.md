@@ -34,3 +34,12 @@ Verified in the running app:
 - The Windows Preset on localhost: 135 RPC and 445 SMB Open; 3389, 5985 and 5986 Closed. The copied text matched the golden format.
 - The Web Preset on a silent address showed "0 of 4 ports answered" at about 1 s, then 4 Filtered at about 2.7 s. One at a time would have taken 8 s.
 - `1-64` stopped after the first wave copied as "Stopped after 32 of 64 ports".
+
+**2026-10-13 — review follow-up (Claude).** Fixed:
+- **"Answered" contradicted the glossary**, because Filtered means no answer. The UI, the comments and Copy as text now say "checked" ("Stopped before any port was checked.").
+- **The summary line was written twice.** The core's `PortCheckResult::summary()` is now the only version: Copy as text uses it, and the shell sends it to the UI, which no longer builds its own.
+- **The port count had two names.** `port_count` and `ports_requested` are now one name, `ports_requested`.
+- **An empty port field** now says "enter at least one port, such as 443 or 22, 80, 8000-8010".
+- **Smaller fixes:** the cap message uses `MAX_PORTS`; the two early returns share `without_ports()`; the fake's `host` parameter is now `address`; the module comment is corrected.
+
+**Deferred: copying a Run that is still running** (story 83). With up to 1,024 ports a Run can last about a minute, so this matters now. Ticket 07 (Continuous Ping) is the first ticket whose acceptance criteria require it, and the shared mechanism should be built there and applied to Port Check too. A note has been added to ticket 07.

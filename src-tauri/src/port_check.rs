@@ -65,6 +65,8 @@ pub struct PortCheckResultView {
     ports_requested: usize,
     ending: &'static str,
     failure_reason: Option<String>,
+    /// The one-line conclusion, worded by the toolbox core.
+    summary: String,
     text: String,
 }
 
@@ -102,6 +104,7 @@ impl From<PortCheckEvent> for PortCheckUpdate {
 impl From<PortCheckResult> for PortCheckResultView {
     fn from(result: PortCheckResult) -> Self {
         let text = result.to_text();
+        let summary = result.summary();
         let (ending, failure_reason) = match result.ending {
             RunEnding::Completed => ("completed", None),
             RunEnding::Stopped => ("stopped", None),
@@ -113,6 +116,7 @@ impl From<PortCheckResult> for PortCheckResultView {
             ports_requested: result.ports_requested,
             ending,
             failure_reason,
+            summary,
             text,
         }
     }
@@ -123,7 +127,7 @@ impl From<PortCheckResult> for PortCheckResultView {
 #[serde(rename_all = "camelCase")]
 pub struct StartedPortCheck {
     id: RunId,
-    port_count: usize,
+    ports_requested: usize,
 }
 
 #[derive(Serialize)]
@@ -157,7 +161,7 @@ pub fn start_port_check(
         family: input.family.into(),
     };
     let check = request.validate().map_err(|error| error.message)?;
-    let port_count = check.ports().len();
+    let ports_requested = check.ports().len();
     let (id, stop) = runs.start();
     let runs = Arc::clone(&runs);
 
@@ -171,5 +175,8 @@ pub fn start_port_check(
         });
         runs.finish(id);
     });
-    Ok(StartedPortCheck { id, port_count })
+    Ok(StartedPortCheck {
+        id,
+        ports_requested,
+    })
 }
