@@ -1,0 +1,8 @@
+[package]
+name = "toolbox-core"
+version = "0.1.0"
+description = "The IT Tools toolbox core: every Tool's behaviour, with no dependency on Tauri or the UI."
+edition = "2024"
+publish = false
+
+[dependencies]

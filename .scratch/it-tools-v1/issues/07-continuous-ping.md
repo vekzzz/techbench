@@ -1,0 +1,19 @@
+# 07 — Continuous Ping
+
+**What to build:** In Ping, the Technician starts a Continuous Ping against one to three Targets side by side (for example the default gateway and 8.8.8.8) and watches a live latency graph and running statistics for each until they stop it. Each Target is its own Run.
+
+Spec: user stories 3, 4, 32–38; Implementation Decisions › Per-Tool rules › Continuous Ping, UI.
+
+**Blocked by:** 05 — Ping; 06 — IP Info.
+
+**Status:** ready-for-agent
+**Category:** enhancement
+
+- [ ] Continuous Ping repeats until stopped, using the same interval and timeout as Ping.
+- [ ] One to three Targets run side by side, each as its own Run; a fourth cannot be added.
+- [ ] The default gateway (from the adapter carrying the default route) is offered as a quick Target.
+- [ ] Each Target has a live latency graph with timeouts marked distinctly from slow replies.
+- [ ] Each Target shows running loss percentage, minimum/average/maximum and jitter, where jitter is the mean absolute difference between consecutive successful round-trip times.
+- [ ] Continuous Ping keeps running when the Technician switches Tools.
+- [ ] The Result can be copied while running and after stopping.
+- [ ] Core tests with the fake adapter and controllable clock cover loss, minimum/average/maximum and jitter over scripted replies and timeouts, three concurrent Runs, and golden Copy as text.

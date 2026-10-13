@@ -1,0 +1,23 @@
+[package]
+name = "it-tools"
+version = "0.1.0"
+description = "IT Tools — a Technician's network diagnostics toolbox"
+authors = ["Venuel"]
+edition = "2024"
+publish = false
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "it_tools_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toolbox-core = { path = "../crates/toolbox-core" }
