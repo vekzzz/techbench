@@ -21,3 +21,5 @@ Spec: user stories 3, 4, 32–38; Implementation Decisions › Per-Tool rules �
 ## Comments
 
 **2026-10-13 — note from ticket 04 (Claude).** "The Result can be copied while running" needs a shared way to get the Copy as text of a Run in progress (story 83). Port Check needs it as well: a 1,024-port Run lasts about a minute, and right now its text only exists once the Run finishes. Build the mechanism here in a form every Tool can use, and apply it to Port Check in the same change.
+
+**2026-10-13 — note from ticket 06 (Claude).** Call `ip_info::find_default_route(network)` to get the Default Route Adapter. The routing table decides it, so a full-tunnel VPN is found too. Offer its first IPv4 gateway as the quick Target. Watch out for an adapter with only an IPv6 link-local gateway (`fe80::…`): `Adapter.gateways` carries no zone id, so pinging it can fail. Prefer an IPv4 gateway, and leave the quick Target out rather than offer a link-local address without its zone.

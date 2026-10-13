@@ -55,6 +55,7 @@ pub struct FakeNetwork {
     echoes: Mutex<HashMap<IpAddr, VecDeque<EchoScript>>>,
     echo_requests: Mutex<Vec<EchoRequest>>,
     adapters: Vec<Adapter>,
+    route_source: Option<IpAddr>,
     /// None: the lookup never answers, so only stopping the Run ends it.
     public_ip: Option<Result<PublicIp, String>>,
 }
@@ -68,6 +69,7 @@ impl FakeNetwork {
             echoes: Mutex::new(HashMap::new()),
             echo_requests: Mutex::new(Vec::new()),
             adapters: Vec::new(),
+            route_source: Some(ip(PC_ADDRESS)),
             public_ip: Some(Err("no public lookup scripted".to_string())),
         }
     }
@@ -75,6 +77,12 @@ impl FakeNetwork {
     /// The PC's adapters, in the order the operating system lists them.
     pub fn with_adapters(mut self, adapters: Vec<Adapter>) -> Self {
         self.adapters = adapters;
+        self
+    }
+
+    /// The local address the routing table says traffic leaves from; None for no route at all.
+    pub fn with_route_source(mut self, address: Option<&str>) -> Self {
+        self.route_source = address.map(ip);
         self
     }
 
@@ -217,7 +225,7 @@ impl Network for FakeNetwork {
     }
 
     fn source_address(&self, _destination: IpAddr) -> Option<IpAddr> {
-        Some(ip(PC_ADDRESS))
+        self.route_source
     }
 
     fn hostname(&self) -> String {

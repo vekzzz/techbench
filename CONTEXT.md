@@ -31,7 +31,7 @@ One self-contained diagnostic or utility the Technician runs, such as Ping or Tr
 _Avoid_: Command, utility, feature, module
 
 **Run**:
-One execution of a Tool against a Target, producing a Result.
+One execution of a Tool, usually against a Target, producing a Result. Tools that look at the Technician's own PC, such as IP Info, run without one.
 _Avoid_: Job, session, test
 
 **Result**:
@@ -83,6 +83,14 @@ _Avoid_: Network scan, IP scan, sweep
 **Device**:
 Something LAN Scan found present at an address, by ARP or ping, described by its IP, hostname, MAC and vendor. A Device that answers ARP but not ping is still a Device.
 _Avoid_: Host, node, client, machine
+
+**Adapter**:
+One of the Technician's PC's network connections (Ethernet, Wi-Fi, VPN or virtual), as Windows reports it.
+_Avoid_: NIC, interface, connection, network card
+
+**Default Route Adapter**:
+The Adapter that the PC's internet traffic leaves through, as the routing table decides; its gateway, DNS server and subnet are the defaults other Tools offer.
+_Avoid_: Primary adapter, main connection, active adapter
 
 **IP Info**:
 A Tool that shows the Technician's own local and public addresses and adapter details.

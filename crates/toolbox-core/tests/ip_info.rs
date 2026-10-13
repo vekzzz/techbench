@@ -87,7 +87,7 @@ async fn the_default_route_adapter_comes_first_then_other_active_ones_then_inact
 }
 
 fn default_route(adapters: &[Adapter]) -> Option<&str> {
-    ip_info::default_route_adapter(adapters).map(|adapter| adapter.name.as_str())
+    ip_info::default_route_adapter(adapters, None).map(|adapter| adapter.name.as_str())
 }
 
 #[test]
@@ -219,7 +219,7 @@ async fn copy_as_text_gives_the_public_address_then_each_adapter_with_only_the_d
         "\
 IP Info
 Time:      2026-10-13 14:05:09 +08:00
-PC:        TECH-PC
+PC:        TECH-PC (10.0.0.23)
 Public:    203.0.113.7 (Example Telecom, Manila)
 
 Wi-Fi (default route)
@@ -283,4 +283,65 @@ fn the_default_route_rule_itself_ignores_an_unspecified_gateway() {
     };
 
     assert_eq!(default_route(&[teredo]), None);
+}
+
+#[tokio::test]
+async fn the_routing_table_decides_the_default_route_so_a_full_tunnel_vpn_without_a_gateway_wins() {
+    let vpn = Adapter {
+        kind: AdapterKind::Other,
+        addresses: vec![AdapterAddress {
+            address: ip("10.8.0.6"),
+            prefix: 32,
+        }],
+        ..adapter("Corporate VPN")
+    };
+    let network = FakeNetwork::new()
+        .with_adapters(vec![with_gateway(adapter("Wi-Fi"), "192.168.1.1", 35), vpn])
+        .with_route_source(Some("10.8.0.6"));
+
+    let result = run(&network).await;
+
+    assert_eq!(result.default_route.as_deref(), Some("Corporate VPN"));
+}
+
+#[tokio::test]
+async fn with_no_route_to_the_internet_the_gateway_metrics_decide() {
+    let network = FakeNetwork::new()
+        .with_adapters(vec![
+            with_gateway(adapter("Wi-Fi"), "192.168.1.1", 35),
+            with_gateway(adapter("Ethernet"), "10.0.0.1", 25),
+        ])
+        .with_route_source(None);
+
+    let result = run(&network).await;
+
+    assert_eq!(result.default_route.as_deref(), Some("Ethernet"));
+}
+
+#[tokio::test]
+async fn copy_as_text_of_a_stopped_run_says_the_public_address_was_not_looked_up() {
+    let network = FakeNetwork::new()
+        .with_adapters(vec![adapter("Ethernet")])
+        .with_hanging_public_ip();
+    let stop = CancellationToken::new();
+
+    let (result, ()) = tokio::join!(ip_info::run(&network, &stop, |_| {}), async {
+        tokio::task::yield_now().await;
+        stop.cancel();
+    });
+
+    assert_eq!(
+        result.to_text(),
+        "\
+IP Info
+Time:      2026-10-13 14:05:09 +08:00
+PC:        TECH-PC (10.0.0.23)
+Public:    not looked up (stopped)
+
+Ethernet
+  Status:       Up
+  Description:  Ethernet controller
+  DHCP:         Off
+"
+    );
 }

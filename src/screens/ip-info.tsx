@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { CopyResult } from "@/components/copy-result";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { AdapterInfo, AdapterKind } from "@/lib/toolbox";
+import type { Adapter, AdapterKind } from "@/lib/toolbox";
 import { useIpInfo } from "@/store";
 
 export function IpInfo() {
@@ -26,6 +26,11 @@ export function IpInfo() {
 
       {run && (
         <>
+          {run.result && (
+            <p className="text-xs text-muted-foreground">
+              PC: <span className="font-mono text-foreground">{run.result.pc}</span>
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             Public address:{" "}
             {run.public ? (
@@ -64,7 +69,7 @@ const KINDS: Record<AdapterKind, string> = {
 };
 
 /** One adapter; inactive adapters start collapsed. */
-function AdapterCard({ adapter, carriesDefaultRoute }: { adapter: AdapterInfo; carriesDefaultRoute: boolean }) {
+function AdapterCard({ adapter, carriesDefaultRoute }: { adapter: Adapter; carriesDefaultRoute: boolean }) {
   return (
     <details open={adapter.up} className="group rounded-md border">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm">
@@ -80,12 +85,9 @@ function AdapterCard({ adapter, carriesDefaultRoute }: { adapter: AdapterInfo; c
         <Field label="IPv6" value={adapter.ipv6.join(", ")} mono />
         <Field label="Gateway" value={adapter.gateways.join(", ")} mono />
         <Field label="DNS servers" value={adapter.dnsServers.join(", ")} mono />
-        <Field
-          label="DHCP"
-          value={adapter.dhcp ? (adapter.dhcp.server ? `On, server ${adapter.dhcp.server}` : "On") : "Off"}
-        />
-        {adapter.dhcp?.obtained && <Field label="Lease obtained" value={adapter.dhcp.obtained} mono />}
-        {adapter.dhcp?.expires && <Field label="Lease expires" value={adapter.dhcp.expires} mono />}
+        <Field label="DHCP" value={adapter.dhcp} />
+        <Field label="Lease obtained" value={adapter.leaseObtained} mono />
+        <Field label="Lease expires" value={adapter.leaseExpires} mono />
       </dl>
     </details>
   );

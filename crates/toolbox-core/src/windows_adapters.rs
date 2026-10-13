@@ -2,9 +2,9 @@
 //! almost everything, and GetAdaptersInfo for DHCP lease times, which only that older call reports.
 
 use std::collections::HashMap;
-use std::ffi::CStr;
+use std::ffi::{CStr, c_void};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::ptr::{null, null_mut};
+use std::ptr::null;
 
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR};
@@ -26,39 +26,39 @@ type LeaseTimes = HashMap<String, (Option<DateTime<FixedOffset>>, Option<DateTim
 
 pub(crate) fn adapters() -> Vec<Adapter> {
     let leases = lease_times();
-    let Some(buffer) = adapter_addresses() else {
+    let flags = GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST;
+    let Some(buffer) = query(16 * 1024, |buffer, size| {
+        // SAFETY: the buffer is writable for `size` bytes and `size` outlives the call.
+        unsafe { GetAdaptersAddresses(u32::from(AF_UNSPEC), flags, null(), buffer.cast(), size) }
+    }) else {
         return vec![];
     };
-    // SAFETY: GetAdaptersAddresses filled `buffer` with a linked list of these structures, all
-    // inside `buffer`, which lives until the end of this function.
+    // SAFETY: GetAdaptersAddresses filled `buffer` with a linked list of these structures, every
+    // node of which lies inside `buffer`.
     let entries = unsafe {
-        linked(buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>(), |entry| {
-            entry.Next
-        })
+        linked(
+            &buffer,
+            buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>(),
+            |entry| entry.Next,
+        )
     };
     entries
         .into_iter()
-        .map(|entry| adapter_from(entry, &leases))
+        // SAFETY: each entry, and everything it points to, lies inside `buffer`, still alive here.
+        .map(|entry| unsafe { adapter_from(entry, &leases) })
         .collect()
 }
 
-/// The raw GetAdaptersAddresses list, in an 8-byte-aligned buffer, retried if it grows meanwhile.
-fn adapter_addresses() -> Option<Vec<u64>> {
-    let flags = GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST;
-    let mut size: u32 = 16 * 1024;
+/// Calls an IP Helper function that fills a caller-sized buffer, growing the buffer while the
+/// function reports that it needs more. The buffer is 8-byte aligned for the structures inside.
+fn query(
+    initial_size: u32,
+    mut call: impl FnMut(*mut c_void, &mut u32) -> u32,
+) -> Option<Vec<u64>> {
+    let mut size = initial_size;
     for _ in 0..3 {
         let mut buffer = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
-        // SAFETY: the buffer is writable for `size` bytes and `size` outlives the call.
-        let status = unsafe {
-            GetAdaptersAddresses(
-                u32::from(AF_UNSPEC),
-                flags,
-                null(),
-                buffer.as_mut_ptr().cast(),
-                &mut size,
-            )
-        };
-        match status {
+        match call(buffer.as_mut_ptr().cast(), &mut size) {
             NO_ERROR => return Some(buffer),
             ERROR_BUFFER_OVERFLOW => continue,
             _ => return None,
@@ -67,7 +67,9 @@ fn adapter_addresses() -> Option<Vec<u64>> {
     None
 }
 
-fn adapter_from(entry: &IP_ADAPTER_ADDRESSES_LH, leases: &LeaseTimes) -> Adapter {
+/// # Safety
+/// `entry` and everything it points to (its lists, strings and socket addresses) must be valid.
+unsafe fn adapter_from(entry: &IP_ADAPTER_ADDRESSES_LH, leases: &LeaseTimes) -> Adapter {
     let kind = match entry.IfType {
         IF_TYPE_ETHERNET_CSMACD => AdapterKind::Ethernet,
         IF_TYPE_IEEE80211 => AdapterKind::Wireless,
@@ -78,42 +80,48 @@ fn adapter_from(entry: &IP_ADAPTER_ADDRESSES_LH, leases: &LeaseTimes) -> Adapter
     let mac = (entry.PhysicalAddressLength == 6)
         .then(|| entry.PhysicalAddress[..6].try_into().expect("six bytes"));
 
-    // SAFETY (for every list below): GetAdaptersAddresses links these lists from `entry`, inside
-    // the same buffer, which outlives this function.
-    let addresses = unsafe { linked(entry.FirstUnicastAddress, |unicast| unicast.Next) }
+    // SAFETY: the caller promises `entry`'s lists and the socket addresses in them are valid.
+    let addresses = unsafe { linked(entry, entry.FirstUnicastAddress, |unicast| unicast.Next) }
         .into_iter()
         .filter_map(|unicast| {
-            socket_ip(&unicast.Address).map(|address| AdapterAddress {
+            // SAFETY: as above.
+            unsafe { socket_ip(&unicast.Address) }.map(|address| AdapterAddress {
                 address,
                 prefix: unicast.OnLinkPrefixLength,
             })
         })
         .collect();
-    let gateways = unsafe { linked(entry.FirstGatewayAddress, |gateway| gateway.Next) }
+    // SAFETY: as above.
+    let gateways = unsafe { linked(entry, entry.FirstGatewayAddress, |gateway| gateway.Next) }
         .into_iter()
-        .filter_map(|gateway| socket_ip(&gateway.Address))
+        // SAFETY: as above.
+        .filter_map(|gateway| unsafe { socket_ip(&gateway.Address) })
         .collect();
-    let dns_servers = unsafe { linked(entry.FirstDnsServerAddress, |server| server.Next) }
+    // SAFETY: as above.
+    let dns_servers = unsafe { linked(entry, entry.FirstDnsServerAddress, |server| server.Next) }
         .into_iter()
-        .filter_map(|server| socket_ip(&server.Address))
+        // SAFETY: as above.
+        .filter_map(|server| unsafe { socket_ip(&server.Address) })
         .collect();
 
     // SAFETY: Flags is a plain u32 view of the union's bitfield.
     let dhcp_enabled = unsafe { entry.Anonymous2.Flags } & IP_ADAPTER_DHCP_ENABLED != 0;
     let dhcp = dhcp_enabled.then(|| {
-        // SAFETY: AdapterName is a NUL-terminated ANSI string inside the same buffer.
+        // SAFETY: the caller promises AdapterName is a valid NUL-terminated ANSI string.
         let guid = unsafe { CStr::from_ptr(entry.AdapterName.cast()) }.to_string_lossy();
         let (obtained, expires) = leases.get(guid.as_ref()).copied().unwrap_or((None, None));
         DhcpLease {
-            server: socket_ip(&entry.Dhcpv4Server),
+            // SAFETY: the caller promises the DHCP server's socket address is valid.
+            server: unsafe { socket_ip(&entry.Dhcpv4Server) },
             obtained,
             expires,
         }
     });
 
     Adapter {
-        // SAFETY: FriendlyName and Description are NUL-terminated UTF-16 strings in the buffer.
+        // SAFETY: the caller promises these are valid NUL-terminated UTF-16 strings.
         name: unsafe { wide_string(entry.FriendlyName) },
+        // SAFETY: as above.
         description: unsafe { wide_string(entry.Description) },
         kind,
         up: entry.OperStatus == IfOperStatusUp,
@@ -130,34 +138,34 @@ fn adapter_from(entry: &IP_ADAPTER_ADDRESSES_LH, leases: &LeaseTimes) -> Adapter
 /// DHCP lease times from GetAdaptersInfo, keyed by the adapter's GUID name. IPv4 only, as the
 /// API is; an empty map if the call fails.
 fn lease_times() -> LeaseTimes {
-    let mut size = 0u32;
-    // SAFETY: a null buffer with size 0 only asks for the size needed.
-    unsafe { GetAdaptersInfo(null_mut(), &mut size) };
-    if size == 0 {
+    let Some(buffer) = query(16 * 1024, |buffer, size| {
+        // SAFETY: the buffer is writable for `size` bytes and `size` outlives the call.
+        unsafe { GetAdaptersInfo(buffer.cast(), size) }
+    }) else {
         return LeaseTimes::new();
-    }
-    let mut buffer = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
-    // SAFETY: the buffer is writable for `size` bytes and `size` outlives the call.
-    if unsafe { GetAdaptersInfo(buffer.as_mut_ptr().cast(), &mut size) } != NO_ERROR {
-        return LeaseTimes::new();
-    }
-    // SAFETY: GetAdaptersInfo filled `buffer` with a linked list inside it; `buffer` outlives this.
-    let entries = unsafe { linked(buffer.as_ptr().cast::<IP_ADAPTER_INFO>(), |info| info.Next) };
+    };
+    // SAFETY: GetAdaptersInfo filled `buffer` with a linked list whose every node lies inside it.
+    let entries = unsafe {
+        linked(&buffer, buffer.as_ptr().cast::<IP_ADAPTER_INFO>(), |info| {
+            info.Next
+        })
+    };
     entries
         .into_iter()
         .filter(|info| info.DhcpEnabled != 0)
-        .map(|info| {
-            // SAFETY: AdapterName is a NUL-terminated ANSI string within its fixed-size array.
-            let guid = unsafe { CStr::from_ptr(info.AdapterName.as_ptr()) }
+        .filter_map(|info| {
+            let name = info.AdapterName.map(|c| c as u8);
+            let guid = CStr::from_bytes_until_nul(&name)
+                .ok()?
                 .to_string_lossy()
                 .into_owned();
-            (
+            Some((
                 guid,
                 (
                     local_time(info.LeaseObtained),
                     local_time(info.LeaseExpires),
                 ),
-            )
+            ))
         })
         .collect()
 }
@@ -170,11 +178,14 @@ fn local_time(seconds: i64) -> Option<DateTime<FixedOffset>> {
         .map(|time| time.fixed_offset())
 }
 
-fn socket_ip(address: &SOCKET_ADDRESS) -> Option<IpAddr> {
+/// # Safety
+/// `address.lpSockaddr` must be null or point at a valid sockaddr of the family it declares.
+unsafe fn socket_ip(address: &SOCKET_ADDRESS) -> Option<IpAddr> {
     if address.lpSockaddr.is_null() {
         return None;
     }
-    // SAFETY: a non-null lpSockaddr points at a sockaddr whose family says which structure it is.
+    // SAFETY: the caller promises a non-null lpSockaddr points at a valid sockaddr whose family
+    // says which structure it is; the address fields read are plain data in either union view.
     unsafe {
         match (*address.lpSockaddr).sa_family {
             AF_INET => {
@@ -203,18 +214,26 @@ unsafe fn wide_string(text: *const u16) -> String {
     while unsafe { *text.add(length) } != 0 {
         length += 1;
     }
+    // SAFETY: the `length` units before the terminator were just read, so they are valid.
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) })
 }
 
-/// Collects a C linked list into references.
+/// Collects a C linked list into references that live no longer than `owner`, the memory the
+/// list was written into.
 ///
 /// # Safety
-/// `first` must be null or head a valid list whose every node outlives `'a`.
-unsafe fn linked<'a, T>(first: *const T, next: impl Fn(&T) -> *mut T) -> Vec<&'a T> {
+/// `first` must be null or head a valid list whose every node lies inside `owner`.
+unsafe fn linked<T, Owner: ?Sized>(
+    owner: &Owner,
+    first: *const T,
+    next: impl Fn(&T) -> *mut T,
+) -> Vec<&T> {
+    let _ = owner;
     let mut nodes = Vec::new();
     let mut current = first;
     while !current.is_null() {
-        // SAFETY: the caller promises every node in the list is valid for `'a`.
+        // SAFETY: the caller promises every node is valid and inside `owner`, which the returned
+        // references borrow.
         let node = unsafe { &*current };
         nodes.push(node);
         current = next(node);

@@ -1,10 +1,14 @@
 //! IP Info commands: read this PC's adapters, then its public address, streaming both to the UI.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::Channel;
-use toolbox_core::ip_info::{self, IpInfoEvent, IpInfoResult, describe_public, format_mac};
+use toolbox_core::ip_info::{
+    self, IpInfoEvent, IpInfoResult, describe_dhcp, describe_public, format_mac, ipv4_addresses,
+    ipv6_addresses,
+};
 use toolbox_core::network::{Adapter, AdapterKind, PublicIp, SystemNetwork};
 use toolbox_core::run::format_time;
 
@@ -39,15 +43,10 @@ pub struct AdapterView {
     ipv6: Vec<String>,
     gateways: Vec<String>,
     dns_servers: Vec<String>,
-    dhcp: Option<DhcpView>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct DhcpView {
-    server: Option<String>,
-    obtained: Option<String>,
-    expires: Option<String>,
+    /// "On, server …", "On" or "Off", worded by the toolbox core.
+    dhcp: String,
+    lease_obtained: Option<String>,
+    lease_expires: Option<String>,
 }
 
 /// The public address line, worded by the toolbox core, and whether the lookup failed.
@@ -61,6 +60,8 @@ pub struct PublicView {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct IpInfoResultView {
+    /// This PC's name, with the address its internet traffic leaves from when there is a route.
+    pc: String,
     adapters: Vec<AdapterView>,
     default_route: Option<String>,
     public: PublicView,
@@ -74,16 +75,8 @@ pub struct StartedIpInfo {
 
 impl From<&Adapter> for AdapterView {
     fn from(adapter: &Adapter) -> Self {
-        let addresses = |ipv4: bool| {
-            adapter
-                .addresses
-                .iter()
-                .filter(|assigned| assigned.address.is_ipv4() == ipv4)
-                .map(|assigned| format!("{}/{}", assigned.address, assigned.prefix))
-                .collect()
-        };
-        let strings =
-            |addresses: &[std::net::IpAddr]| addresses.iter().map(ToString::to_string).collect();
+        let strings = |addresses: &[IpAddr]| addresses.iter().map(ToString::to_string).collect();
+        let lease = adapter.dhcp.as_ref();
         Self {
             name: adapter.name.clone(),
             description: adapter.description.clone(),
@@ -96,15 +89,13 @@ impl From<&Adapter> for AdapterView {
             },
             up: adapter.up,
             mac: adapter.mac.map(format_mac),
-            ipv4: addresses(true),
-            ipv6: addresses(false),
+            ipv4: ipv4_addresses(adapter),
+            ipv6: ipv6_addresses(adapter),
             gateways: strings(&adapter.gateways),
             dns_servers: strings(&adapter.dns_servers),
-            dhcp: adapter.dhcp.as_ref().map(|lease| DhcpView {
-                server: lease.server.map(|server| server.to_string()),
-                obtained: lease.obtained.map(format_time),
-                expires: lease.expires.map(format_time),
-            }),
+            dhcp: describe_dhcp(lease),
+            lease_obtained: lease.and_then(|lease| lease.obtained).map(format_time),
+            lease_expires: lease.and_then(|lease| lease.expires).map(format_time),
         }
     }
 }
@@ -137,10 +128,14 @@ impl From<IpInfoEvent> for IpInfoUpdate {
 impl From<IpInfoResult> for IpInfoResultView {
     fn from(result: IpInfoResult) -> Self {
         Self {
+            pc: match result.pc_address {
+                Some(address) => format!("{} ({address})", result.pc_name),
+                None => result.pc_name.clone(),
+            },
             adapters: result.adapters.iter().map(AdapterView::from).collect(),
             default_route: result.default_route.clone(),
             public: PublicView {
-                text: result.public_text(),
+                text: describe_public(result.public.as_ref()),
                 failed: !matches!(result.public, Some(Ok(_))),
             },
             text: result.to_text(),

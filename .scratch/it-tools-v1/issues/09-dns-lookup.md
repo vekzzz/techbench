@@ -17,3 +17,7 @@ Spec: user stories 45–51; Implementation Decisions › Network adapter, Per-To
 - [ ] Queries go to the chosen server directly; the hosts file is not consulted.
 - [ ] Copy as text works.
 - [ ] Core tests with the fake adapter cover record shaping per type, automatic PTR, the four outcomes, and golden Copy as text; tests against public DNS servers are opt-in only.
+
+## Comments
+
+**2026-10-13 — note from ticket 06 (Claude).** Call `ip_info::find_default_route(network)` to get the Default Route Adapter. The routing table decides it, so a VPN's DNS servers win when the VPN carries the default route. Its `dns_servers` gives the default server: use the first one.

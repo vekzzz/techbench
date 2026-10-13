@@ -17,3 +17,7 @@ Spec: user stories 58–61, 62 (IP, MAC, response time), 65–67; Implementation
 - [ ] Devices appear as they are found, with a progress indicator; the scan can be stopped and copied at any point.
 - [ ] IPv6 ranges are rejected with an explanation that LAN Scan is IPv4 only.
 - [ ] Core tests with the fake adapter cover range parsing, the size policy, own-subnet versus other-subnet probing, the "no ping reply" flag, stopping, and golden Copy as text.
+
+## Comments
+
+**2026-10-13 — note from ticket 06 (Claude).** Call `ip_info::find_default_route(network)` to get the Default Route Adapter. Caveat: if no adapter has an IPv4 route, the rule falls back to IPv6, and that adapter may have no IPv4 address at all. In that case LAN Scan must leave the range empty and ask for one rather than guess.

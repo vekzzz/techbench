@@ -118,8 +118,8 @@ export function startPing(input: PingInput, onUpdate: (update: PingUpdate) => vo
 
 export type AdapterKind = "ethernet" | "wireless" | "loopback" | "tunnel" | "other";
 
-/** One of this PC's network adapters. Times are already worded by the toolbox core. */
-export type AdapterInfo = {
+/** One of this PC's network adapters, worded by the toolbox core. */
+export type Adapter = {
   name: string;
   description: string;
   kind: AdapterKind;
@@ -130,25 +130,29 @@ export type AdapterInfo = {
   ipv6: string[];
   gateways: string[];
   dnsServers: string[];
-  /** Present when DHCP is enabled. */
-  dhcp: { server: string | null; obtained: string | null; expires: string | null } | null;
+  /** "On, server …", "On" or "Off". */
+  dhcp: string;
+  leaseObtained: string | null;
+  leaseExpires: string | null;
 };
 
 /** The public address line, worded by the toolbox core, and whether the lookup failed. */
-export type PublicInfo = { text: string; failed: boolean };
+export type PublicIp = { text: string; failed: boolean };
 
 export type IpInfoResult = {
+  /** This PC's name, with the address its internet traffic leaves from. */
+  pc: string;
   /** The adapter carrying the default route first, then other active adapters, then inactive ones. */
-  adapters: AdapterInfo[];
+  adapters: Adapter[];
   defaultRoute: string | null;
-  public: PublicInfo;
+  public: PublicIp;
   /** The Result as plain text, ready to paste into a ticket. */
   text: string;
 };
 
 export type IpInfoUpdate =
-  | { kind: "adapters"; adapters: AdapterInfo[]; defaultRoute: string | null }
-  | { kind: "public"; public: PublicInfo }
+  | { kind: "adapters"; adapters: Adapter[]; defaultRoute: string | null }
+  | { kind: "public"; public: PublicIp }
   | { kind: "finished"; result: IpInfoResult };
 
 /** Reads this PC's adapters, then its public address. */

@@ -43,3 +43,24 @@ Verified on this PC:
 - The copied text matched the format.
 
 Note: corporate networks that need a web proxy aren't handled yet. `ureq` doesn't read the Windows proxy settings by default.
+
+**2026-10-13 — review follow-up (Claude).** Fixed:
+- **The default route comes from the routing table.** It was a guess from gateways and metrics, which misses a full-tunnel VPN that installs a default route with no gateway. Now the core asks the routing table which local address internet traffic leaves from (`source_address(8.8.8.8)`, then IPv6; nothing is sent) and picks the active adapter holding that address. The gateway-metric rule is only the fallback when there is no route. `ip_info::find_default_route(network)` gives this to tickets 07, 09 and 10, with notes left on each.
+- **The Copy header names the PC's IP**: `PC: name (address)`.
+- **New golden** for a stopped Run.
+- **The smoke test goes through `ip_info::run`.** It stops when the adapters arrive, so it never reaches the internet.
+- **`windows_adapters.rs`:**
+  - `adapter_from` and `socket_ip` are now `unsafe fn` with documented contracts.
+  - `linked` ties its references to the buffer it reads.
+  - Every `unsafe` has its own SAFETY comment.
+  - The fixed-size GUID is read with `CStr::from_bytes_until_nul`.
+  - Both IP Helper calls share one sizing-and-retry helper.
+- **The core owns the wording:** `describe_dhcp`, `ipv4_addresses` and `ipv6_addresses` are used by the shell, the pass-through `public_text` is gone, and times go through `format_time`.
+- **Naming:** the TypeScript types `Adapter` and `PublicIp` now match the core.
+- **Glossary:** added "Adapter" and "Default Route Adapter", and a Run is now "usually against a Target", because IP Info has none.
+
+Accepted:
+- IP Info has no summary line.
+- The default route is identified by adapter name, which is unique on Windows.
+- The unspecified-gateway check stays in two places, because both the display filter and the public rule need it.
+- Loopback is filtered out, and descriptions, kinds and the DHCP server are shown.

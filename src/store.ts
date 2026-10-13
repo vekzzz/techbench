@@ -97,9 +97,9 @@ export const usePing = createRunStore({
 export type IpInfoRun = {
   key: number;
   id: toolbox.RunId | null;
-  adapters: toolbox.AdapterInfo[] | null;
+  adapters: toolbox.Adapter[] | null;
   defaultRoute: string | null;
-  public: toolbox.PublicInfo | null;
+  public: toolbox.PublicIp | null;
   result: toolbox.IpInfoResult | null;
 };
 
