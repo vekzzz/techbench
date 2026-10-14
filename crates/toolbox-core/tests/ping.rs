@@ -6,7 +6,7 @@ use common::{EchoScript, FakeNetwork, ip, ms};
 use tokio_util::sync::CancellationToken;
 use toolbox_core::network::{EchoOutcome, EchoRequest};
 use toolbox_core::ping::{self, EchoReport, PingRequest, PingResult};
-use toolbox_core::run::RunEnding;
+use toolbox_core::run::{Progress, RunEnding};
 use toolbox_core::target::AddressFamily;
 
 fn request(target: &str) -> PingRequest {
@@ -410,5 +410,31 @@ Echoes:    4 x 32 bytes, 2000 ms timeout
 
 Could not resolve nosuchhost.corp.local: No such host is known.
 "
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_summary_of_a_ping_still_going_says_how_far_it_has_got() {
+    let network =
+        FakeNetwork::new().with_echoes("10.0.0.5", [reply(3), reply(5), EchoScript::Hang]);
+    let ping = request("10.0.0.5").validate().unwrap();
+    let progress = Progress::default();
+    let stop = CancellationToken::new();
+
+    let (_, summary_while_running) = tokio::join!(
+        ping::run_with_progress(&network, &ping, &stop, &progress, |_| {}),
+        async {
+            tokio::time::sleep(ms(1500)).await;
+            let summary = progress.read(PingResult::summary);
+            stop.cancel();
+            summary
+        }
+    );
+
+    assert_eq!(
+        summary_while_running.as_deref(),
+        Some(
+            "Still running: 2 of 4 echoes so far: 2 sent, 2 received, 0% loss; round trip min 3 ms, avg 4 ms, max 5 ms"
+        )
     );
 }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use toolbox_core::network::{EchoOutcome, SystemNetwork};
 use toolbox_core::ping::{self, EchoReport, PingEvent, PingRequest, PingResult};
+use toolbox_core::run::Progress;
 
 use crate::runs::{AddressFamilyInput, EndingView, RunId, Runs};
 
@@ -41,7 +42,7 @@ pub enum PingUpdate {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EchoView {
-    sequence: u32,
+    sequence: u64,
     status: &'static str,
     round_trip_ms: Option<f64>,
     ttl: Option<u8>,
@@ -69,9 +70,9 @@ pub struct StartedPing {
     echoes_requested: u32,
 }
 
-impl From<EchoReport> for EchoView {
-    fn from(echo: EchoReport) -> Self {
-        let (status, round_trip_ms, ttl, from) = match echo.outcome {
+impl EchoView {
+    pub(crate) fn new(sequence: u64, outcome: EchoOutcome) -> Self {
+        let (status, round_trip_ms, ttl, from) = match outcome {
             EchoOutcome::Reply { round_trip, ttl } => {
                 ("reply", Some(round_trip.as_secs_f64() * 1000.0), ttl, None)
             }
@@ -85,12 +86,18 @@ impl From<EchoReport> for EchoView {
             EchoOutcome::FragmentationNeeded => ("fragmentationNeeded", None, None, None),
         };
         Self {
-            sequence: echo.sequence,
+            sequence,
             status,
             round_trip_ms,
             ttl,
             from,
         }
+    }
+}
+
+impl From<EchoReport> for EchoView {
+    fn from(echo: EchoReport) -> Self {
+        EchoView::new(u64::from(echo.sequence), echo.outcome)
     }
 }
 
@@ -147,14 +154,19 @@ pub fn start_ping(
     };
     let ping = request.validate().map_err(|error| error.message)?;
     let echoes_requested = ping.settings().count;
-    let id = runs.spawn(move |stop| async move {
-        let result = ping::run(&SystemNetwork, &ping, &stop, |event| {
-            let _ = on_update.send(event.into());
-        })
-        .await;
-        let _ = on_update.send(PingUpdate::Finished {
-            result: result.into(),
-        });
+    let progress = Progress::default();
+    let id = runs.spawn_copyable(&progress, PingResult::to_text, {
+        let progress = progress.clone();
+        move |stop| async move {
+            let result =
+                ping::run_with_progress(&SystemNetwork, &ping, &stop, &progress, |event| {
+                    let _ = on_update.send(event.into());
+                })
+                .await;
+            let _ = on_update.send(PingUpdate::Finished {
+                result: result.into(),
+            });
+        }
     });
     Ok(StartedPing {
         id,

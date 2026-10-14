@@ -10,7 +10,7 @@ use toolbox_core::network::ConnectOutcome;
 use toolbox_core::port_check::{
     self, PortCheckEvent, PortCheckRequest, PortCheckResult, PortOutcome, PortReport,
 };
-use toolbox_core::run::RunEnding;
+use toolbox_core::run::{Progress, RunEnding};
 use toolbox_core::target::AddressFamily;
 
 fn request(target: &str, ports: &str) -> PortCheckRequest {
@@ -608,5 +608,43 @@ fn an_empty_port_field_asks_for_a_port() {
     assert_eq!(
         error.message,
         "enter at least one port, such as 443 or 22, 80, 8000-8010"
+    );
+}
+
+#[tokio::test]
+async fn the_text_of_a_run_still_going_says_how_far_it_has_got() {
+    let network = FakeNetwork::new()
+        .with_connect("10.0.0.5:22", ConnectOutcome::Refused)
+        .with_hanging_connect("10.0.0.5:445");
+    let check = request("10.0.0.5", "22, 445").validate().unwrap();
+    let progress = Progress::default();
+    let stop = CancellationToken::new();
+
+    let (_, text_while_running) = tokio::join!(
+        port_check::run_with_progress(&network, &check, &stop, &progress, |_| {}),
+        async {
+            tokio::task::yield_now().await;
+            let text = progress.read(PortCheckResult::to_text);
+            stop.cancel();
+            text
+        }
+    );
+
+    assert_eq!(
+        text_while_running.as_deref(),
+        Some(
+            "\
+Port Check
+Target:    10.0.0.5
+Resolved:  10.0.0.5
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC (10.0.0.23)
+
+PORT  SERVICE  OUTCOME  CONNECT TIME
+22    SSH      Closed   -
+
+Still running: 1 of 2 ports checked so far: 0 Open, 1 Closed, 0 Filtered
+"
+        )
     );
 }

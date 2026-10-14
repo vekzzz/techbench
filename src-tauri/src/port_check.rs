@@ -8,6 +8,7 @@ use toolbox_core::network::SystemNetwork;
 use toolbox_core::port_check::{
     self, PortCheckEvent, PortCheckRequest, PortCheckResult, PortOutcome, PortReport,
 };
+use toolbox_core::run::Progress;
 
 use crate::runs::{AddressFamilyInput, EndingView, RunId, Runs};
 
@@ -136,14 +137,19 @@ pub fn start_port_check(
     };
     let check = request.validate().map_err(|error| error.message)?;
     let ports_requested = check.ports().len();
-    let id = runs.spawn(move |stop| async move {
-        let result = port_check::run(&SystemNetwork, &check, &stop, |event| {
-            let _ = on_update.send(event.into());
-        })
-        .await;
-        let _ = on_update.send(PortCheckUpdate::Finished {
-            result: result.into(),
-        });
+    let progress = Progress::default();
+    let id = runs.spawn_copyable(&progress, PortCheckResult::to_text, {
+        let progress = progress.clone();
+        move |stop| async move {
+            let result =
+                port_check::run_with_progress(&SystemNetwork, &check, &stop, &progress, |event| {
+                    let _ = on_update.send(event.into());
+                })
+                .await;
+            let _ = on_update.send(PortCheckUpdate::Finished {
+                result: result.into(),
+            });
+        }
     });
     Ok(StartedPortCheck {
         id,

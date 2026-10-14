@@ -1,5 +1,6 @@
 //! The IT Tools toolbox core: every Tool's behaviour, with no dependency on Tauri or the UI.
 
+pub mod continuous_ping;
 pub mod ip_info;
 pub mod network;
 pub mod ping;

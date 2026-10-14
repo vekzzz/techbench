@@ -9,15 +9,42 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { milliseconds } from "@/lib/format";
 import { pingDefaults, type EchoReport, type EchoStatus } from "@/lib/toolbox";
-import { usePing, type PingRun } from "@/store";
+import { ContinuousPing } from "@/screens/continuous-ping";
+import { useAppStore, usePing, type PingRun } from "@/store";
 
 export function Ping() {
+  const mode = useAppStore((state) => state.pingMode);
+  const setMode = useAppStore((state) => state.setPingMode);
+
+  return (
+    <div className="flex max-w-3xl flex-col gap-6">
+      <div role="radiogroup" aria-label="Ping mode" className="flex w-fit rounded-md border p-0.5">
+        {(["once", "continuous"] as const).map((option) => (
+          <Button
+            key={option}
+            type="button"
+            size="sm"
+            role="radio"
+            aria-checked={mode === option}
+            variant={mode === option ? "secondary" : "ghost"}
+            onClick={() => setMode(option)}
+          >
+            {option === "once" ? "Once" : "Continuous"}
+          </Button>
+        ))}
+      </div>
+      {mode === "once" ? <PingOnce /> : <ContinuousPing />}
+    </div>
+  );
+}
+
+function PingOnce() {
   const { input, error, run, update, start, stop } = usePing();
   const running = run !== null && run.result === null;
   usePingDefaults();
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -67,7 +94,7 @@ export function Ping() {
           <Button type="submit" variant={running ? "outline" : "default"}>
             {running ? "Stop" : "Ping"}
           </Button>
-          {run?.result && <CopyResult text={run.result.text} />}
+          {run && <CopyResult text={run.result?.text} runId={run.id} />}
         </div>
       </form>
 

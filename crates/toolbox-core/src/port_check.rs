@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
 use crate::network::{ConnectOutcome, Network};
-use crate::run::{self, Opening, RunEnding, RunHeader, milliseconds, text_table};
+use crate::run::{self, Opening, Progress, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
 
 /// How long a port has to accept a connection before it counts as Filtered.
@@ -178,6 +178,10 @@ impl PortCheckResult {
                 "{checked} port{} checked",
                 if checked == 1 { "" } else { "s" }
             )),
+            RunEnding::Running => tally(format!(
+                "Still running: {checked} of {} ports checked so far",
+                self.ports_requested
+            )),
         }
     }
 
@@ -209,12 +213,26 @@ pub async fn run(
     network: &impl Network,
     check: &PortCheck,
     stop: &CancellationToken,
+    on_event: impl FnMut(PortCheckEvent),
+) -> PortCheckResult {
+    run_with_progress(network, check, stop, &Progress::default(), on_event).await
+}
+
+/// Runs a Port Check, keeping `progress` up to date so its Result can be read mid-Run.
+pub async fn run_with_progress(
+    network: &impl Network,
+    check: &PortCheck,
+    stop: &CancellationToken,
+    progress: &Progress<PortCheckResult>,
     mut on_event: impl FnMut(PortCheckEvent),
 ) -> PortCheckResult {
     let (header, resolved) = match run::open(network, &check.target, stop).await {
         Opening::Resolved { header, resolved } => (header, resolved),
-        Opening::Ended { header, ending } => return without_ports(header, check, ending),
+        Opening::Ended { header, ending } => {
+            return progress.finish(without_ports(header, check, ending));
+        }
     };
+    progress.set(without_ports(header, check, RunEnding::Running));
     on_event(PortCheckEvent::Resolved(resolved));
 
     let mut checking = stream::iter(check.ports.iter().copied())
@@ -231,25 +249,26 @@ pub async fn run(
         })
         .buffer_unordered(PARALLEL_CONNECTS);
 
-    let mut reports = Vec::new();
     let ending = loop {
         match stop.run_until_cancelled(checking.next()).await {
             Some(Some(report)) => {
+                // Kept in port order as they arrive, so the Result reads well at any moment.
+                progress.update(|result| {
+                    let at = result
+                        .ports
+                        .partition_point(|checked| checked.port < report.port);
+                    result.ports.insert(at, report);
+                });
                 on_event(PortCheckEvent::Port(report));
-                reports.push(report);
             }
             Some(None) => break RunEnding::Completed,
             None => break RunEnding::Stopped,
         }
     };
-    reports.sort_unstable_by_key(|report| report.port);
-
-    PortCheckResult {
-        header,
-        ports: reports,
-        ports_requested: check.ports.len(),
-        ending,
-    }
+    progress.update(|result| result.ending = ending);
+    progress
+        .read(Clone::clone)
+        .expect("the Run opened, so its Result exists")
 }
 
 /// A Result that ended before any port was checked.

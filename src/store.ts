@@ -12,6 +12,13 @@ type AppState = {
   screen: ScreenId;
   showScreen: (screen: ScreenId) => void;
 
+  /** Whether Ping sends a set number of echoes or keeps going until stopped. */
+  pingMode: "once" | "continuous";
+  setPingMode: (mode: AppState["pingMode"]) => void;
+  /** How many Continuous Ping Targets are shown side by side, from 1 to 3. */
+  continuousTargets: number;
+  setContinuousTargets: (count: number) => void;
+
   subnetCalculator: { input: string; check: string };
   updateSubnetCalculator: (patch: Partial<AppState["subnetCalculator"]>) => void;
 };
@@ -19,6 +26,11 @@ type AppState = {
 export const useAppStore = create<AppState>((set) => ({
   screen: "subnet-calculator",
   showScreen: (screen) => set({ screen }),
+
+  pingMode: "once",
+  setPingMode: (pingMode) => set({ pingMode }),
+  continuousTargets: 1,
+  setContinuousTargets: (count) => set({ continuousTargets: Math.min(3, Math.max(1, count)) }),
 
   subnetCalculator: { input: "", check: "" },
   updateSubnetCalculator: (patch) =>
@@ -125,3 +137,42 @@ export const useIpInfo = createRunStore({
     }
   },
 });
+
+/** How many recent echoes a Continuous Ping graph shows. */
+export const GRAPH_POINTS = 60;
+
+/** A Continuous Ping Run as the UI follows it. */
+export type ContinuousPingRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  resolved: string | null;
+  /** The most recent echoes, oldest first: round trip in ms, or null when lost. */
+  points: { sequence: number; roundTripMs: number | null }[];
+  statistics: toolbox.PingStatistics | null;
+  result: toolbox.ContinuousPingResult | null;
+};
+
+function createContinuousPingSlot() {
+  const input: toolbox.ContinuousPingInput = { target: "", family: "auto" };
+  return createRunStore({
+    input,
+    begin: (key): ContinuousPingRun => ({ key, id: null, resolved: null, points: [], statistics: null, result: null }),
+    start: toolbox.startContinuousPing,
+    accepted: (run, started) => ({ ...run, id: started.id }),
+    apply: (run, update: toolbox.ContinuousPingUpdate) => {
+      switch (update.kind) {
+        case "resolved":
+          return { ...run, resolved: update.address };
+        case "echo": {
+          const point = { sequence: update.echo.sequence, roundTripMs: update.echo.roundTripMs };
+          return { ...run, points: [...run.points, point].slice(-GRAPH_POINTS), statistics: update.statistics };
+        }
+        case "finished":
+          return { ...run, result: update.result };
+      }
+    },
+  });
+}
+
+/** One store per Continuous Ping Target slot: up to three run side by side. */
+export const continuousPingSlots = [createContinuousPingSlot(), createContinuousPingSlot(), createContinuousPingSlot()];

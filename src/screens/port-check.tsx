@@ -69,7 +69,7 @@ export function PortCheck() {
           <Button type="submit" variant={running ? "outline" : "default"}>
             {running ? "Stop" : "Check"}
           </Button>
-          {run?.result && <CopyResult text={run.result.text} />}
+          {run && <CopyResult text={run.result?.text} runId={run.id} />}
         </div>
       </form>
 

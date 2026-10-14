@@ -345,3 +345,46 @@ Ethernet
 "
     );
 }
+
+#[tokio::test]
+async fn the_default_gateway_is_the_default_route_adapters_ipv4_gateway() {
+    let wifi = Adapter {
+        gateways: vec![ip("fe80::1"), ip("192.168.1.1")],
+        ..with_gateway(adapter("Wi-Fi"), "192.168.1.1", 35)
+    };
+    let network = FakeNetwork::new().with_adapters(vec![adapter("Ethernet"), wifi]);
+
+    assert_eq!(
+        ip_info::default_gateway(&network).await,
+        Some(ip("192.168.1.1"))
+    );
+}
+
+#[tokio::test]
+async fn a_link_local_ipv6_gateway_is_not_offered_because_it_cannot_be_pinged_without_its_zone() {
+    let wifi = Adapter {
+        gateways: vec![ip("fe80::1")],
+        ..adapter("Wi-Fi")
+    };
+    let network = FakeNetwork::new()
+        .with_adapters(vec![wifi])
+        .with_route_source(None);
+
+    assert_eq!(ip_info::default_gateway(&network).await, None);
+}
+
+#[tokio::test]
+async fn a_global_ipv6_gateway_is_offered_when_there_is_no_ipv4_one() {
+    let wifi = Adapter {
+        gateways: vec![ip("2001:db8::1")],
+        ..adapter("Wi-Fi")
+    };
+    let network = FakeNetwork::new()
+        .with_adapters(vec![wifi])
+        .with_route_source(None);
+
+    assert_eq!(
+        ip_info::default_gateway(&network).await,
+        Some(ip("2001:db8::1"))
+    );
+}

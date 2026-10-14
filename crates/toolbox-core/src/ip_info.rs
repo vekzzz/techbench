@@ -220,6 +220,19 @@ pub async fn find_default_route(network: &impl Network) -> Option<Adapter> {
     default_route_adapter(&adapters, internet_route_source(network)).cloned()
 }
 
+/// The gateway of the Default Route Adapter, for a quick Target: its IPv4 gateway, or failing
+/// that a global IPv6 one. A link-local IPv6 gateway is left out, as it can't be pinged without
+/// the zone the adapter list doesn't carry.
+pub async fn default_gateway(network: &impl Network) -> Option<IpAddr> {
+    let adapter = find_default_route(network).await?;
+    let is_link_local =
+        |gateway: &IpAddr| matches!(gateway, IpAddr::V6(v6) if v6.is_unicast_link_local());
+    let gateways = || adapter.gateways.iter().copied();
+    gateways()
+        .find(IpAddr::is_ipv4)
+        .or_else(|| gateways().find(|gateway| !is_link_local(gateway)))
+}
+
 /// The adapter carrying the default route. The routing table decides: the active adapter holding
 /// `route_source`, the address internet traffic leaves from, which also finds a full-tunnel VPN
 /// with no gateway. Without that answer, the active adapter with an IPv4 gateway and the lowest

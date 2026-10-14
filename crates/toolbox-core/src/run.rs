@@ -1,6 +1,7 @@
 //! What every Run records about itself, whichever Tool it belongs to.
 
 use std::net::IpAddr;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
@@ -85,9 +86,11 @@ pub(crate) fn text_table(headings: &[&str], rows: &[Vec<String>]) -> String {
     table
 }
 
-/// How a Run finished.
+/// How a Run finished, or that it is still going.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunEnding {
+    /// Not ended yet: the Result so far, as read through [`Progress`].
+    Running,
     Completed,
     /// The Technician stopped the Run; its Result holds what was collected so far.
     Stopped,
@@ -137,5 +140,58 @@ pub(crate) async fn open(
             header.source_address = network.source_address(resolved);
             Opening::Resolved { header, resolved }
         }
+    }
+}
+
+/// A Run's Result as it builds up, shared with whoever started the Run so it can be read at any
+/// moment: that is how the Technician copies a Run that is still going. Empty until the Run has
+/// opened.
+#[derive(Debug)]
+pub struct Progress<R>(Arc<Mutex<Option<R>>>);
+
+impl<R> Default for Progress<R> {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+}
+
+impl<R> Clone for Progress<R> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<R> Progress<R> {
+    /// Reads the Result so far; None before the Run has one.
+    pub fn read<T>(&self, read: impl FnOnce(&R) -> T) -> Option<T> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(read)
+    }
+
+    pub(crate) fn set(&self, result: R) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+    }
+
+    /// Changes the Result so far. Does nothing before the Run has one.
+    pub(crate) fn update(&self, change: impl FnOnce(&mut R)) {
+        if let Some(result) = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            change(result);
+        }
+    }
+}
+
+impl<R: Clone> Progress<R> {
+    /// Ends the Run: records `ending` and hands back the final Result.
+    pub(crate) fn finish(&self, result: R) -> R {
+        self.set(result.clone());
+        result
     }
 }

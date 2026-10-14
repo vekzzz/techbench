@@ -7,11 +7,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
 use crate::network::{EchoOutcome, EchoRequest, Network};
-use crate::run::{self, Opening, RunEnding, RunHeader, milliseconds, text_table};
+use crate::run::{self, Opening, Progress, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
 
 /// How long after one echo the next is sent.
-const INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const INTERVAL: Duration = Duration::from_secs(1);
+
+/// Bytes of data in each echo unless the Technician chooses otherwise.
+pub(crate) const DEFAULT_PAYLOAD_SIZE: u16 = 32;
+
+/// How long each echo is given to answer unless the Technician chooses otherwise.
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A Ping exactly as the Technician filled it in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,8 +39,8 @@ impl Default for PingRequest {
         Self {
             target: String::new(),
             count: "4".to_string(),
-            payload_size: "32".to_string(),
-            timeout_ms: "2000".to_string(),
+            payload_size: DEFAULT_PAYLOAD_SIZE.to_string(),
+            timeout_ms: DEFAULT_TIMEOUT.as_millis().to_string(),
             dont_fragment: false,
             family: AddressFamily::Auto,
         }
@@ -182,17 +188,29 @@ impl PingResult {
                 _ => None,
             })
             .collect();
-        if self.ending == RunEnding::Stopped && sent == 0 {
-            return "Stopped before the first echo finished.".to_string();
+        if sent == 0 {
+            return match self.ending {
+                RunEnding::Running => "Still running: no echo has finished yet.".to_string(),
+                _ => "Stopped before the first echo finished.".to_string(),
+            };
         }
         let received = round_trips.len();
         let lost_percent = ((sent - received) * 100 + sent / 2) / sent;
         let mut summary = format!("{sent} sent, {received} received, {lost_percent}% loss");
-        if self.ending == RunEnding::Stopped {
-            summary = format!(
-                "Stopped after {sent} of {} echoes: {summary}",
-                self.settings.count
-            );
+        match self.ending {
+            RunEnding::Stopped => {
+                summary = format!(
+                    "Stopped after {sent} of {} echoes: {summary}",
+                    self.settings.count
+                );
+            }
+            RunEnding::Running => {
+                summary = format!(
+                    "Still running: {sent} of {} echoes so far: {summary}",
+                    self.settings.count
+                );
+            }
+            _ => {}
         }
         if let (Some(min), Some(max)) = (round_trips.iter().min(), round_trips.iter().max()) {
             let average = round_trips.iter().sum::<Duration>() / received as u32;
@@ -246,42 +264,88 @@ pub async fn run(
     network: &impl Network,
     ping: &Ping,
     stop: &CancellationToken,
+    on_event: impl FnMut(PingEvent),
+) -> PingResult {
+    run_with_progress(network, ping, stop, &Progress::default(), on_event).await
+}
+
+/// Runs a Ping, keeping `progress` up to date so its Result can be read mid-Run.
+pub async fn run_with_progress(
+    network: &impl Network,
+    ping: &Ping,
+    stop: &CancellationToken,
+    progress: &Progress<PingResult>,
     mut on_event: impl FnMut(PingEvent),
 ) -> PingResult {
     let settings = ping.settings;
-    let finish = |header, echoes, ending| PingResult {
-        header,
-        settings,
-        echoes,
-        ending,
-    };
-
     let (header, resolved) = match run::open(network, &ping.target, stop).await {
         Opening::Resolved { header, resolved } => (header, resolved),
-        Opening::Ended { header, ending } => return finish(header, vec![], ending),
+        Opening::Ended { header, ending } => {
+            return progress.finish(PingResult {
+                header,
+                settings,
+                echoes: vec![],
+                ending,
+            });
+        }
     };
+    progress.set(PingResult {
+        header,
+        settings,
+        echoes: vec![],
+        ending: RunEnding::Running,
+    });
     on_event(PingEvent::Resolved(resolved));
 
-    let mut echoes = Vec::new();
+    let count = Some(u64::from(settings.count));
+    let ending = send_paced(
+        network,
+        settings.echo_to(resolved),
+        count,
+        stop,
+        |sequence, _, outcome| {
+            let report = EchoReport {
+                sequence: sequence as u32,
+                outcome,
+            };
+            progress.update(|result| result.echoes.push(report));
+            on_event(PingEvent::Echo(report));
+        },
+    )
+    .await;
+    progress.update(|result| result.ending = ending);
+    progress
+        .read(Clone::clone)
+        .expect("the Run opened, so its Result exists")
+}
+
+/// Sends echoes one second apart until `count` have finished (with None, until stopped) or
+/// `stop` is cancelled, handing each to `on_echo` with its sequence number and when it was sent.
+/// The next echo goes a second after the previous one was sent, or at once if waiting for its
+/// reply already took longer. Says how the Run ended.
+pub(crate) async fn send_paced(
+    network: &impl Network,
+    request: EchoRequest,
+    count: Option<u64>,
+    stop: &CancellationToken,
+    mut on_echo: impl FnMut(u64, tokio::time::Instant, EchoOutcome),
+) -> RunEnding {
     let mut sent_at = tokio::time::Instant::now();
-    for sequence in 1..=settings.count {
+    for sequence in 1.. {
+        if count.is_some_and(|count| sequence > count) {
+            return RunEnding::Completed;
+        }
         if sequence > 1 {
-            // The next echo goes a second after the previous one was sent, or at once if
-            // waiting for its reply already took longer.
             let pause = tokio::time::sleep_until(sent_at + INTERVAL);
             if stop.run_until_cancelled(pause).await.is_none() {
-                return finish(header, echoes, RunEnding::Stopped);
+                return RunEnding::Stopped;
             }
         }
         sent_at = tokio::time::Instant::now();
-        let echo = network.icmp_echo(settings.echo_to(resolved));
-        let Some(outcome) = stop.run_until_cancelled(echo).await else {
-            return finish(header, echoes, RunEnding::Stopped);
+        let Some(outcome) = stop.run_until_cancelled(network.icmp_echo(request)).await else {
+            return RunEnding::Stopped;
         };
-        let report = EchoReport { sequence, outcome };
-        on_event(PingEvent::Echo(report));
-        echoes.push(report);
+        on_echo(sequence, sent_at, outcome);
     }
-
-    finish(header, echoes, RunEnding::Completed)
+    unreachable!("the sequence numbers outlast any Run")
 }

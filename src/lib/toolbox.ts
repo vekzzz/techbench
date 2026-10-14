@@ -7,10 +7,15 @@ export type RunId = number;
 /** Which IP version a Run may use for its Resolved Address. */
 export type AddressFamily = "auto" | "ipv4" | "ipv6";
 
-export type RunEnding = "completed" | "stopped" | "resolutionFailed";
+export type RunEnding = "running" | "completed" | "stopped" | "resolutionFailed";
 
 export function stopRun(id: RunId): Promise<void> {
   return invoke("stop_run", { id });
+}
+
+/** The Copy as text of a Run still going; null once it has finished, or before it has anything. */
+export function runText(id: RunId): Promise<string | null> {
+  return invoke("run_text", { id });
 }
 
 export type PortOutcome = "open" | "closed" | "filtered";
@@ -160,6 +165,48 @@ export function startIpInfo(onUpdate: (update: IpInfoUpdate) => void): Promise<{
   const channel = new Channel<IpInfoUpdate>();
   channel.onmessage = onUpdate;
   return invoke("start_ip_info", { onUpdate: channel });
+}
+
+/** Running totals after an echo; times in milliseconds. */
+export type PingStatistics = {
+  sent: number;
+  received: number;
+  lossPercent: number;
+  minMs: number | null;
+  avgMs: number | null;
+  maxMs: number | null;
+  jitterMs: number | null;
+};
+
+export type ContinuousPingResult = {
+  ending: RunEnding;
+  failureReason: string | null;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type ContinuousPingUpdate =
+  | { kind: "resolved"; address: string }
+  | { kind: "echo"; echo: EchoReport; statistics: PingStatistics }
+  | { kind: "finished"; result: ContinuousPingResult };
+
+export type ContinuousPingInput = { target: string; family: AddressFamily };
+
+/** Pings a Target every second until the Run is stopped. Rejects with a message when the input is invalid. */
+export function startContinuousPing(
+  input: ContinuousPingInput,
+  onUpdate: (update: ContinuousPingUpdate) => void,
+): Promise<{ id: RunId }> {
+  const channel = new Channel<ContinuousPingUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_continuous_ping", { input, onUpdate: channel });
+}
+
+/** The default route's gateway, offered as a quick Target; null when there is none to offer. */
+export function defaultGateway(): Promise<string | null> {
+  return invoke("default_gateway");
 }
 
 export type SubnetReport = {
