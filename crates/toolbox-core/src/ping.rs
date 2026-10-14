@@ -132,6 +132,7 @@ impl EchoSettings {
             address,
             payload_size: self.payload_size,
             dont_fragment: self.dont_fragment && address.is_ipv4(),
+            ttl: None,
             timeout: self.timeout,
         }
     }
@@ -231,6 +232,14 @@ impl PingResult {
                         from.map_or_else(
                             || "Unreachable".to_string(),
                             |from| format!("Unreachable from {from}"),
+                        ),
+                        "-".to_string(),
+                        "-".to_string(),
+                    ),
+                    EchoOutcome::TimeExceeded { from, .. } => (
+                        from.map_or_else(
+                            || "Time exceeded".to_string(),
+                            |from| format!("Time exceeded from {from}"),
                         ),
                         "-".to_string(),
                         "-".to_string(),

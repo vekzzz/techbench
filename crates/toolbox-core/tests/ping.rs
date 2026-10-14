@@ -65,6 +65,7 @@ async fn each_echo_carries_the_chosen_size_timeout_and_dont_fragment_setting() {
         address: ip("10.0.0.5"),
         payload_size: 1472,
         dont_fragment: true,
+        ttl: None,
         timeout: ms(500),
     };
     assert_eq!(network.echo_requests(), vec![sent, sent]);
@@ -81,6 +82,7 @@ async fn the_defaults_are_32_bytes_a_2_second_timeout_and_fragmenting_allowed() 
         address: ip("10.0.0.5"),
         payload_size: 32,
         dont_fragment: false,
+        ttl: None,
         timeout: ms(2000),
     };
     assert_eq!(network.echo_requests(), vec![sent; 4]);

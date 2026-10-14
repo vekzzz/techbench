@@ -83,6 +83,12 @@ impl EchoView {
                 None,
                 from.map(|address| address.to_string()),
             ),
+            EchoOutcome::TimeExceeded { from, .. } => (
+                "timeExceeded",
+                None,
+                None,
+                from.map(|address| address.to_string()),
+            ),
             EchoOutcome::FragmentationNeeded => ("fragmentationNeeded", None, None, None),
         };
         Self {

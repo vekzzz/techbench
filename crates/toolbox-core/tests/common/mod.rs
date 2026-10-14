@@ -33,6 +33,11 @@ enum ConnectScript {
     Hang,
 }
 
+enum ReverseScript {
+    Name(String),
+    After(Duration, String),
+}
+
 enum NameScript {
     Answer(Result<Vec<IpAddr>, String>),
     /// The resolver never answers, so only stopping the Run ends it.
@@ -54,6 +59,9 @@ pub struct FakeNetwork {
     connect_timeouts: Mutex<Vec<Duration>>,
     echoes: Mutex<HashMap<IpAddr, VecDeque<EchoScript>>>,
     echo_requests: Mutex<Vec<EchoRequest>>,
+    /// Echo scripts for requests that carry a TTL, by address and TTL.
+    hops: Mutex<HashMap<(IpAddr, u8), VecDeque<EchoScript>>>,
+    reverse_names: HashMap<IpAddr, ReverseScript>,
     adapters: Vec<Adapter>,
     route_source: Option<IpAddr>,
     /// None: the lookup never answers, so only stopping the Run ends it.
@@ -68,6 +76,8 @@ impl FakeNetwork {
             connect_timeouts: Mutex::new(Vec::new()),
             echoes: Mutex::new(HashMap::new()),
             echo_requests: Mutex::new(Vec::new()),
+            hops: Mutex::new(HashMap::new()),
+            reverse_names: HashMap::new(),
             adapters: Vec::new(),
             route_source: Some(ip(PC_ADDRESS)),
             public_ip: Some(Err("no public lookup scripted".to_string())),
@@ -104,6 +114,36 @@ impl FakeNetwork {
             .entry(ip(address))
             .or_default()
             .extend(scripts);
+        self
+    }
+
+    /// Echoes sent to `address` with this `ttl` get these scripted answers, in order.
+    pub fn with_hop_echoes(
+        self,
+        address: &str,
+        ttl: u8,
+        scripts: impl IntoIterator<Item = EchoScript>,
+    ) -> Self {
+        self.hops
+            .lock()
+            .unwrap()
+            .entry((ip(address), ttl))
+            .or_default()
+            .extend(scripts);
+        self
+    }
+
+    /// A reverse lookup of `address` finds `name`.
+    pub fn with_reverse_name(mut self, address: &str, name: &str) -> Self {
+        self.reverse_names
+            .insert(ip(address), ReverseScript::Name(name.to_string()));
+        self
+    }
+
+    /// A reverse lookup of `address` takes this long, then finds `name`.
+    pub fn with_slow_reverse_name(mut self, address: &str, delay: Duration, name: &str) -> Self {
+        self.reverse_names
+            .insert(ip(address), ReverseScript::After(delay, name.to_string()));
         self
     }
 
@@ -192,12 +232,20 @@ impl Network for FakeNetwork {
 
     async fn icmp_echo(&self, request: EchoRequest) -> EchoOutcome {
         self.echo_requests.lock().unwrap().push(request);
-        let script = self
-            .echoes
-            .lock()
-            .unwrap()
-            .get_mut(&request.address)
-            .and_then(VecDeque::pop_front);
+        let script = match request.ttl {
+            Some(ttl) => self
+                .hops
+                .lock()
+                .unwrap()
+                .get_mut(&(request.address, ttl))
+                .and_then(VecDeque::pop_front),
+            None => self
+                .echoes
+                .lock()
+                .unwrap()
+                .get_mut(&request.address)
+                .and_then(VecDeque::pop_front),
+        };
         match script {
             Some(EchoScript::Answer(outcome)) => outcome,
             Some(EchoScript::Silent) => {
@@ -210,6 +258,16 @@ impl Network for FakeNetwork {
                 self.echo_requests().len(),
                 request.address
             ),
+        }
+    }
+
+    async fn reverse_lookup(&self, address: IpAddr) -> Option<String> {
+        match self.reverse_names.get(&address)? {
+            ReverseScript::Name(name) => Some(name.clone()),
+            ReverseScript::After(delay, name) => {
+                tokio::time::sleep(*delay).await;
+                Some(name.clone())
+            }
         }
     }
 

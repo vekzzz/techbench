@@ -27,6 +27,9 @@ pub struct EchoRequest {
     pub payload_size: u16,
     /// Forbids routers from fragmenting the packet, so an oversized one is refused instead.
     pub dont_fragment: bool,
+    /// The TTL (IPv6: hop limit) the echo is sent with. A router that finds it spent answers
+    /// with [`EchoOutcome::TimeExceeded`]: how Traceroute finds each Hop. None: the system's usual.
+    pub ttl: Option<u8>,
     pub timeout: Duration,
 }
 
@@ -40,6 +43,11 @@ pub enum EchoOutcome {
     },
     /// No answer before the timeout.
     TimedOut,
+    /// A router (`from`) found the echo's TTL spent before it reached the Target, `round_trip` after it was sent.
+    TimeExceeded {
+        from: Option<IpAddr>,
+        round_trip: Duration,
+    },
     /// A router (`from`) or the local stack reported the destination unreachable.
     Unreachable { from: Option<IpAddr> },
     /// The packet was too big for a link on the path and Don't Fragment forbade splitting it.
@@ -122,6 +130,9 @@ pub trait Network: Send + Sync {
     /// Sends one ICMP echo request and waits for its outcome.
     fn icmp_echo(&self, request: EchoRequest) -> impl Future<Output = EchoOutcome> + Send;
 
+    /// The name the system's DNS gives `address` (a reverse lookup), if any.
+    fn reverse_lookup(&self, address: IpAddr) -> impl Future<Output = Option<String>> + Send;
+
     /// This PC's network adapters.
     fn adapters(&self) -> impl Future<Output = Vec<Adapter>> + Send;
 
@@ -200,6 +211,21 @@ impl Network for SystemNetwork {
         {
             let _ = request;
             unimplemented!("ICMP echo is implemented for Windows only (ADR 0002)")
+        }
+    }
+
+    async fn reverse_lookup(&self, address: IpAddr) -> Option<String> {
+        #[cfg(windows)]
+        {
+            tokio::task::spawn_blocking(move || crate::windows_names::reverse_lookup(address))
+                .await
+                .ok()
+                .flatten()
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = address;
+            unimplemented!("reverse lookup is implemented for Windows only (ADR 0002)")
         }
     }
 

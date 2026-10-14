@@ -8,8 +8,8 @@ use std::time::Duration;
 use windows_sys::Win32::Foundation::{GetLastError, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     ICMP_ECHO_REPLY, ICMPV6_ECHO_REPLY_LH, IP_FLAG_DF, IP_OPTION_INFORMATION, IP_PACKET_TOO_BIG,
-    IP_REQ_TIMED_OUT, IP_SUCCESS, Icmp6CreateFile, Icmp6SendEcho2, IcmpCloseHandle, IcmpCreateFile,
-    IcmpSendEcho2,
+    IP_REQ_TIMED_OUT, IP_SUCCESS, IP_TTL_EXPIRED_REASSEM, IP_TTL_EXPIRED_TRANSIT, Icmp6CreateFile,
+    Icmp6SendEcho2, IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho2,
 };
 use windows_sys::Win32::Networking::WinSock::{AF_INET6, IN6_ADDR, IN6_ADDR_0, SOCKADDR_IN6};
 
@@ -35,7 +35,7 @@ fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
         return EchoOutcome::Unreachable { from: None };
     };
     let payload = payload(request.payload_size);
-    let options = options(request.dont_fragment);
+    let options = options(&request);
     let mut reply_buffer = ReplyBuffer::new(size_of::<ICMP_ECHO_REPLY>() + payload.len());
 
     // SAFETY: the handle is open; the payload, options and reply buffer outlive the call and
@@ -57,7 +57,7 @@ fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
     };
     if replies == 0 {
         // SAFETY: GetLastError only reads this thread's last-error value.
-        return outcome_of(unsafe { GetLastError() }, None);
+        return outcome_of(unsafe { GetLastError() }, None, Duration::ZERO);
     }
     // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer;
     // `reply_buffer` lives until the end of this function, outliving the reference.
@@ -68,7 +68,11 @@ fn echo_v4(destination: Ipv4Addr, request: EchoRequest) -> EchoOutcome {
             round_trip: Duration::from_millis(u64::from(reply.RoundTripTime)),
             ttl: Some(reply.Options.Ttl),
         },
-        status => outcome_of(status, Some(from)),
+        status => outcome_of(
+            status,
+            Some(from),
+            Duration::from_millis(u64::from(reply.RoundTripTime)),
+        ),
     }
 }
 
@@ -78,7 +82,7 @@ fn echo_v6(destination: Ipv6Addr, request: EchoRequest) -> EchoOutcome {
         return EchoOutcome::Unreachable { from: None };
     };
     let payload = payload(request.payload_size);
-    let options = options(request.dont_fragment);
+    let options = options(&request);
     let mut reply_buffer = ReplyBuffer::new(size_of::<ICMPV6_ECHO_REPLY_LH>() + payload.len());
     // An unspecified source lets Windows pick the address the route leaves from.
     let source = socket_address(Ipv6Addr::UNSPECIFIED);
@@ -103,7 +107,7 @@ fn echo_v6(destination: Ipv6Addr, request: EchoRequest) -> EchoOutcome {
     };
     if replies == 0 {
         // SAFETY: GetLastError only reads this thread's last-error value.
-        return outcome_of(unsafe { GetLastError() }, None);
+        return outcome_of(unsafe { GetLastError() }, None, Duration::ZERO);
     }
     // SAFETY: the call reported a reply, which it writes at the start of the aligned buffer;
     // `reply_buffer` lives until the end of this function, outliving the reference.
@@ -116,14 +120,21 @@ fn echo_v6(destination: Ipv6Addr, request: EchoRequest) -> EchoOutcome {
             round_trip: Duration::from_millis(u64::from(reply.RoundTripTime)),
             ttl: None,
         },
-        status => outcome_of(status, Some(from)),
+        status => outcome_of(
+            status,
+            Some(from),
+            Duration::from_millis(u64::from(reply.RoundTripTime)),
+        ),
     }
 }
 
-fn outcome_of(status: u32, from: Option<IpAddr>) -> EchoOutcome {
+fn outcome_of(status: u32, from: Option<IpAddr>, round_trip: Duration) -> EchoOutcome {
     match status {
         IP_REQ_TIMED_OUT => EchoOutcome::TimedOut,
         IP_PACKET_TOO_BIG => EchoOutcome::FragmentationNeeded,
+        IP_TTL_EXPIRED_TRANSIT | IP_TTL_EXPIRED_REASSEM => {
+            EchoOutcome::TimeExceeded { from, round_trip }
+        }
         // The IP_DEST_*_UNREACHABLE statuses, and anything else (a bad route, a general
         // failure when the network is down): the echo didn't arrive.
         _ => EchoOutcome::Unreachable { from },
@@ -135,11 +146,15 @@ fn payload(size: u16) -> Vec<u8> {
     (0..size).map(|i| b'a' + (i % 23) as u8).collect()
 }
 
-fn options(dont_fragment: bool) -> IP_OPTION_INFORMATION {
+fn options(request: &EchoRequest) -> IP_OPTION_INFORMATION {
     IP_OPTION_INFORMATION {
-        Ttl: DEFAULT_TTL,
+        Ttl: request.ttl.unwrap_or(DEFAULT_TTL),
         Tos: 0,
-        Flags: if dont_fragment { IP_FLAG_DF as u8 } else { 0 },
+        Flags: if request.dont_fragment {
+            IP_FLAG_DF as u8
+        } else {
+            0
+        },
         OptionsSize: 0,
         OptionsData: null_mut(),
     }

@@ -194,6 +194,7 @@ const STATUSES: Record<EchoStatus, { label: string; variant: "default" | "second
   reply: { label: "Reply", variant: "default" },
   timedOut: { label: "Timed out", variant: "outline" },
   unreachable: { label: "Unreachable", variant: "destructive" },
+  timeExceeded: { label: "Time exceeded", variant: "secondary" },
   fragmentationNeeded: { label: "Fragmentation needed", variant: "secondary" },
 };
 

@@ -24,6 +24,7 @@ import { IpInfo } from "@/screens/ip-info";
 import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
+import { Traceroute } from "@/screens/traceroute";
 import { useAppStore } from "@/store";
 import { SAVED_TARGETS, TOOLS, screenById, type Screen } from "@/tools";
 
@@ -56,6 +57,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
       return <SubnetCalculator />;
     case "ping":
       return <Ping />;
+    case "traceroute":
+      return <Traceroute />;
     case "ip-info":
       return <IpInfo />;
     case "port-check":

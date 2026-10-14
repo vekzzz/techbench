@@ -176,3 +176,36 @@ function createContinuousPingSlot() {
 
 /** One store per Continuous Ping Target slot: up to three run side by side. */
 export const continuousPingSlots = [createContinuousPingSlot(), createContinuousPingSlot(), createContinuousPingSlot()];
+
+/** A Traceroute Run as the UI follows it: Hops appear as found, hostnames fill in later. */
+export type TracerouteRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  resolved: string | null;
+  hops: toolbox.HopInfo[];
+  result: toolbox.TracerouteResult | null;
+};
+
+const tracerouteInput: toolbox.TracerouteInput = { target: "", family: "auto" };
+
+export const useTraceroute = createRunStore({
+  input: tracerouteInput,
+  begin: (key): TracerouteRun => ({ key, id: null, resolved: null, hops: [], result: null }),
+  start: toolbox.startTraceroute,
+  accepted: (run, started) => ({ ...run, id: started.id }),
+  apply: (run, update: toolbox.TracerouteUpdate) => {
+    switch (update.kind) {
+      case "resolved":
+        return { ...run, resolved: update.address };
+      case "hop":
+        return { ...run, hops: [...run.hops, update.hop] };
+      case "hostname":
+        return {
+          ...run,
+          hops: run.hops.map((hop) => (hop.number === update.hop ? { ...hop, hostname: update.hostname } : hop)),
+        };
+      case "finished":
+        return { ...run, result: update.result };
+    }
+  },
+});

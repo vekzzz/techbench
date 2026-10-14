@@ -6,6 +6,7 @@ mod ping;
 mod port_check;
 mod runs;
 mod subnet;
+mod traceroute;
 
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ pub fn run() {
             ping::start_ping,
             port_check::port_presets,
             port_check::start_port_check,
+            traceroute::start_traceroute,
             runs::run_text,
             runs::stop_run,
         ])

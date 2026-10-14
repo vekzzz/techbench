@@ -68,7 +68,7 @@ export function portPresets(): Promise<PortPreset[]> {
   return invoke("port_presets");
 }
 
-export type EchoStatus = "reply" | "timedOut" | "unreachable" | "fragmentationNeeded";
+export type EchoStatus = "reply" | "timedOut" | "unreachable" | "timeExceeded" | "fragmentationNeeded";
 
 export type EchoReport = {
   /** Numbered from 1, in the order the echoes were sent. */
@@ -209,6 +209,46 @@ export function startContinuousPing(
 /** The default route's gateway, offered as a quick Target; null when there is none to offer. */
 export function defaultGateway(): Promise<string | null> {
   return invoke("default_gateway");
+}
+
+export type ProbeInfo = { status: "answered" | "unreachable" | "silent"; roundTripMs: number | null };
+
+/** One router on the path. */
+export type HopInfo = {
+  number: number;
+  /** The first address that answered; null when every probe was silent. */
+  address: string | null;
+  /** Filled in by a later update, once a reverse lookup finds a name. */
+  hostname: string | null;
+  probes: ProbeInfo[];
+  reachedTarget: boolean;
+};
+
+export type TracerouteResult = {
+  ending: RunEnding;
+  failureReason: string | null;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type TracerouteUpdate =
+  | { kind: "resolved"; address: string }
+  | { kind: "hop"; hop: HopInfo }
+  | { kind: "hostname"; hop: number; hostname: string }
+  | { kind: "finished"; result: TracerouteResult };
+
+export type TracerouteInput = { target: string; family: AddressFamily };
+
+/** Traces the path to a Target. Rejects with a message, before any Run starts, when the input is invalid. */
+export function startTraceroute(
+  input: TracerouteInput,
+  onUpdate: (update: TracerouteUpdate) => void,
+): Promise<{ id: RunId }> {
+  const channel = new Channel<TracerouteUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_traceroute", { input, onUpdate: channel });
 }
 
 export type SubnetReport = {

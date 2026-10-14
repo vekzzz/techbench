@@ -9,10 +9,13 @@ mod public_ip;
 pub mod run;
 pub mod subnet_calculator;
 pub mod target;
+pub mod traceroute;
 #[cfg(windows)]
 mod windows_adapters;
 #[cfg(windows)]
 mod windows_icmp;
+#[cfg(windows)]
+mod windows_names;
 
 /// Why something the Technician typed was rejected before a Run could start.
 #[derive(Debug, Clone, PartialEq, Eq)]
