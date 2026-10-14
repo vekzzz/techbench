@@ -10,7 +10,8 @@ use chrono::{DateTime, FixedOffset};
 use std::collections::VecDeque;
 
 use toolbox_core::network::{
-    Adapter, ConnectOutcome, EchoOutcome, EchoRequest, Network, PublicIp, ResolveError,
+    Adapter, ConnectOutcome, DnsAnswer, DnsReply, EchoOutcome, EchoRequest, Network, PublicIp,
+    RecordType, ResolveError,
 };
 
 pub const PC_NAME: &str = "TECH-PC";
@@ -62,6 +63,8 @@ pub struct FakeNetwork {
     /// Echo scripts for requests that carry a TTL, by address and TTL.
     hops: Mutex<HashMap<(IpAddr, u8), VecDeque<EchoScript>>>,
     reverse_names: HashMap<IpAddr, ReverseScript>,
+    dns_answers: HashMap<(SocketAddr, String, &'static str), DnsReply>,
+    dns_queries: Mutex<Vec<(SocketAddr, String, RecordType)>>,
     adapters: Vec<Adapter>,
     route_source: Option<IpAddr>,
     /// None: the lookup never answers, so only stopping the Run ends it.
@@ -78,6 +81,8 @@ impl FakeNetwork {
             echo_requests: Mutex::new(Vec::new()),
             hops: Mutex::new(HashMap::new()),
             reverse_names: HashMap::new(),
+            dns_answers: HashMap::new(),
+            dns_queries: Mutex::new(Vec::new()),
             adapters: Vec::new(),
             route_source: Some(ip(PC_ADDRESS)),
             public_ip: Some(Err("no public lookup scripted".to_string())),
@@ -131,6 +136,36 @@ impl FakeNetwork {
             .or_default()
             .extend(scripts);
         self
+    }
+
+    /// The DNS server at `server` answers the query for `name`'s `record_type` records like this,
+    /// after `after`.
+    pub fn with_dns_answer(
+        mut self,
+        server: &str,
+        name: &str,
+        record_type: RecordType,
+        after: Duration,
+        answer: DnsAnswer,
+    ) -> Self {
+        let key = (
+            server.parse().unwrap(),
+            name.to_string(),
+            record_type.name(),
+        );
+        self.dns_answers.insert(
+            key,
+            DnsReply {
+                answer,
+                round_trip: after,
+            },
+        );
+        self
+    }
+
+    /// Every DNS query the Run sent, in order.
+    pub fn dns_queries(&self) -> Vec<(SocketAddr, String, RecordType)> {
+        self.dns_queries.lock().unwrap().clone()
     }
 
     /// A reverse lookup of `address` finds `name`.
@@ -259,6 +294,21 @@ impl Network for FakeNetwork {
                 request.address
             ),
         }
+    }
+
+    async fn dns_query(&self, server: SocketAddr, name: &str, record_type: RecordType) -> DnsReply {
+        self.dns_queries
+            .lock()
+            .unwrap()
+            .push((server, name.to_string(), record_type));
+        let key = (server, name.to_string(), record_type.name());
+        let reply = self
+            .dns_answers
+            .get(&key)
+            .unwrap_or_else(|| panic!("test did not script a DNS answer for {key:?}"))
+            .clone();
+        tokio::time::sleep(reply.round_trip).await;
+        reply
     }
 
     async fn reverse_lookup(&self, address: IpAddr) -> Option<String> {

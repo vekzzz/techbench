@@ -1,6 +1,7 @@
 //! The Tauri shell: exposes the toolbox core to the UI. It holds no Tool logic of its own.
 
 mod continuous_ping;
+mod dns_lookup;
 mod ip_info;
 mod ping;
 mod port_check;
@@ -19,6 +20,8 @@ pub fn run() {
             subnet::subnet_contains,
             continuous_ping::default_gateway,
             continuous_ping::start_continuous_ping,
+            dns_lookup::default_dns_server,
+            dns_lookup::start_dns_lookup,
             ip_info::start_ip_info,
             ping::ping_defaults,
             ping::start_ping,

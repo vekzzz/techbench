@@ -209,3 +209,20 @@ export const useTraceroute = createRunStore({
     }
   },
 });
+
+/** A DNS Lookup Run as the UI follows it: one question, one answer. */
+export type DnsLookupRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  result: toolbox.DnsLookupResult | null;
+};
+
+const dnsLookupInput: toolbox.DnsLookupInput = { query: "", recordType: "A", server: "" };
+
+export const useDnsLookup = createRunStore({
+  input: dnsLookupInput,
+  begin: (key): DnsLookupRun => ({ key, id: null, result: null }),
+  start: toolbox.startDnsLookup,
+  accepted: (run, started) => ({ ...run, id: started.id }),
+  apply: (run, update: toolbox.DnsLookupUpdate) => ({ ...run, result: update.result }),
+});

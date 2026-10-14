@@ -265,7 +265,7 @@ pub fn default_route_adapter(
 }
 
 /// Asks the routing table which local address internet traffic leaves from. Sends nothing.
-fn internet_route_source(network: &impl Network) -> Option<IpAddr> {
+pub(crate) fn internet_route_source(network: &impl Network) -> Option<IpAddr> {
     network
         .source_address(INTERNET_V4)
         .or_else(|| network.source_address(INTERNET_V6))

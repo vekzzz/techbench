@@ -107,6 +107,83 @@ pub struct PublicIp {
     pub city: Option<String>,
 }
 
+/// The DNS record types DNS Lookup can ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordType {
+    A,
+    Aaaa,
+    Cname,
+    Mx,
+    Txt,
+    Ns,
+    Ptr,
+    Soa,
+}
+
+impl RecordType {
+    /// Every type, in the order DNS Lookup offers them.
+    pub const ALL: [RecordType; 8] = [
+        RecordType::A,
+        RecordType::Aaaa,
+        RecordType::Cname,
+        RecordType::Mx,
+        RecordType::Txt,
+        RecordType::Ns,
+        RecordType::Ptr,
+        RecordType::Soa,
+    ];
+
+    /// The type as DNS tools write it: `A`, `AAAA`, `CNAME` and so on.
+    pub fn name(self) -> &'static str {
+        match self {
+            RecordType::A => "A",
+            RecordType::Aaaa => "AAAA",
+            RecordType::Cname => "CNAME",
+            RecordType::Mx => "MX",
+            RecordType::Txt => "TXT",
+            RecordType::Ns => "NS",
+            RecordType::Ptr => "PTR",
+            RecordType::Soa => "SOA",
+        }
+    }
+}
+
+/// One DNS record, its value already written the way `nslookup` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsRecord {
+    pub name: String,
+    pub record_type: RecordType,
+    /// Seconds the record may be cached.
+    pub ttl: u32,
+    /// For example `93.184.216.34`, `10 mail.example.com` (MX) or `"v=spf1 -all"` (TXT).
+    pub value: String,
+}
+
+/// What a DNS server said to a query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DnsAnswer {
+    Records(Vec<DnsRecord>),
+    /// NXDOMAIN: the name does not exist at all.
+    NameDoesNotExist,
+    /// The name exists, but has no records of the type asked for.
+    NoRecords,
+    /// The server answered with an error code: 2 is SERVFAIL, 5 is REFUSED.
+    ServerError {
+        code: u8,
+    },
+    /// The server's answer could not be read.
+    BadResponse,
+    /// Nothing came back before the timeout.
+    NoResponse,
+}
+
+/// A DNS server's answer and how long it took.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsReply {
+    pub answer: DnsAnswer,
+    pub round_trip: Duration,
+}
+
 /// Why the system resolver could not turn a hostname into addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveError {
@@ -129,6 +206,15 @@ pub trait Network: Send + Sync {
 
     /// Sends one ICMP echo request and waits for its outcome.
     fn icmp_echo(&self, request: EchoRequest) -> impl Future<Output = EchoOutcome> + Send;
+
+    /// Asks the DNS server at `server` for `name`'s `record_type` records, directly: the hosts
+    /// file and the system's resolver are not consulted.
+    fn dns_query(
+        &self,
+        server: SocketAddr,
+        name: &str,
+        record_type: RecordType,
+    ) -> impl Future<Output = DnsReply> + Send;
 
     /// The name the system's DNS gives `address` (a reverse lookup), if any.
     fn reverse_lookup(&self, address: IpAddr) -> impl Future<Output = Option<String>> + Send;
@@ -212,6 +298,10 @@ impl Network for SystemNetwork {
             let _ = request;
             unimplemented!("ICMP echo is implemented for Windows only (ADR 0002)")
         }
+    }
+
+    async fn dns_query(&self, server: SocketAddr, name: &str, record_type: RecordType) -> DnsReply {
+        crate::dns_client::query(server, name, record_type).await
     }
 
     async fn reverse_lookup(&self, address: IpAddr) -> Option<String> {

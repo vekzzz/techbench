@@ -256,6 +256,45 @@ export function startTraceroute(
   return invoke("start_traceroute", { input, onUpdate: channel });
 }
 
+/** The record types DNS Lookup can ask for, in the order the screen offers them. */
+export const DNS_RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "PTR", "SOA"] as const;
+export type DnsRecordType = (typeof DNS_RECORD_TYPES)[number];
+
+export type DnsRecordInfo = { name: string; recordType: DnsRecordType; ttl: number; value: string };
+
+export type DnsLookupResult = {
+  /** The name actually asked for: the reverse name when the query was an IP address. */
+  asked: string;
+  recordType: DnsRecordType;
+  automaticType: boolean;
+  server: string | null;
+  answeredMs: number | null;
+  records: DnsRecordInfo[];
+  /** True when there are no records to show: the summary says why. */
+  failed: boolean;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type DnsLookupUpdate = { kind: "finished"; result: DnsLookupResult };
+
+/** `recordType` is ignored for an IP address, which is always looked up as PTR; an empty `server` means this PC's own. */
+export type DnsLookupInput = { query: string; recordType: DnsRecordType; server: string };
+
+/** Asks a DNS server. Rejects with a message, before any Run starts, when the input is invalid. */
+export function startDnsLookup(input: DnsLookupInput, onUpdate: (update: DnsLookupUpdate) => void): Promise<{ id: RunId }> {
+  const channel = new Channel<DnsLookupUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_dns_lookup", { input, onUpdate: channel });
+}
+
+/** This PC's own DNS server (the default route adapter's first); null when none is configured. */
+export function defaultDnsServer(): Promise<string | null> {
+  return invoke("default_dns_server");
+}
+
 export type SubnetReport = {
   network: string;
   prefix: number;

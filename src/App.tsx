@@ -20,6 +20,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/use-theme";
 import { ComingSoon } from "@/screens/coming-soon";
+import { DnsLookup } from "@/screens/dns-lookup";
 import { IpInfo } from "@/screens/ip-info";
 import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
@@ -59,6 +60,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
       return <Ping />;
     case "traceroute":
       return <Traceroute />;
+    case "dns-lookup":
+      return <DnsLookup />;
     case "ip-info":
       return <IpInfo />;
     case "port-check":

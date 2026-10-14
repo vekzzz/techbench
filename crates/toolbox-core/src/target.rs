@@ -45,6 +45,14 @@ impl ChosenTarget {
         }
     }
 
+    /// The address, when the Technician typed an IP address rather than a hostname.
+    pub(crate) fn address(&self) -> Option<IpAddr> {
+        match self.target {
+            Target::Address(address) => Some(address),
+            Target::Hostname(_) => None,
+        }
+    }
+
     /// Picks the single Resolved Address a Run uses: IPv4 first unless the family says otherwise.
     pub(crate) async fn resolve(&self, network: &impl Network) -> Result<IpAddr, String> {
         match &self.target {
