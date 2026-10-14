@@ -84,6 +84,9 @@ async fn serve_udp(
     (address, seen)
 }
 
+/// Builds a response to a query: here, a deliberately broken one.
+type HostileReply = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + Sync>;
+
 async fn ask(server: SocketAddr, record_type: RecordType) -> DnsAnswer {
     SystemNetwork
         .dns_query(server, "example.com", record_type)
@@ -252,9 +255,17 @@ async fn an_answer_with_the_wrong_id_is_ignored_and_the_right_one_is_used() {
 
 #[tokio::test]
 async fn an_answer_that_cannot_be_read_is_a_bad_response() {
-    let (server, _) =
-        serve_udp(|query, _| vec![[&query[0..2], &[0x81, 0x80, 0, 1, 0, 5, 0, 0, 0, 0]].concat()])
-            .await;
+    let (server, _) = serve_udp(|query, _| {
+        vec![
+            [
+                &query[0..2],
+                &[0x81, 0x80, 0, 1, 0, 5, 0, 0, 0, 0][..],
+                &query[12..],
+            ]
+            .concat(),
+        ]
+    })
+    .await;
 
     assert_eq!(ask(server, RecordType::A).await, DnsAnswer::BadResponse);
 }
@@ -357,4 +368,73 @@ async fn public_dns_answers_for_a_real_name_and_says_nxdomain_for_one_that_canno
         "{real:?}"
     );
     assert_eq!(missing, DnsAnswer::NameDoesNotExist);
+}
+
+#[tokio::test]
+async fn a_stray_datagram_with_the_right_id_that_is_not_a_response_does_not_end_the_wait() {
+    let (server, _) = serve_udp(|query, _| {
+        let mut question_not_response = query.to_vec();
+        question_not_response[2] = 0x01; // QR clear: a query, not a response
+        vec![
+            question_not_response,
+            response(query, 0, false, &[answer(A, 10, &[4, 3, 2, 1])]),
+        ]
+    })
+    .await;
+
+    assert_eq!(
+        ask(server, RecordType::A).await,
+        DnsAnswer::Records(vec![record(RecordType::A, 10, "4.3.2.1")])
+    );
+}
+
+#[tokio::test]
+async fn an_answer_to_a_different_question_is_ignored() {
+    let (server, _) = serve_udp(|query, _| {
+        let mut other = response(query, 3, false, &[]);
+        other[13] ^= 0x01; // a different first letter in the echoed question
+        vec![
+            other,
+            response(query, 0, false, &[answer(A, 10, &[7, 7, 7, 7])]),
+        ]
+    })
+    .await;
+
+    assert_eq!(
+        ask(server, RecordType::A).await,
+        DnsAnswer::Records(vec![record(RecordType::A, 10, "7.7.7.7")])
+    );
+}
+
+#[tokio::test]
+async fn hostile_answers_are_bad_responses_not_hangs_or_crashes() {
+    // A name that points at itself; a name over 255 bytes; an NS
+    // whose name runs past the end of its own data.
+    let looping_name = answer(NS, 1, &[0xC0, 0x1C]);
+    let long_name = {
+        let labels: Vec<u8> = (0..5)
+            .flat_map(|_| [vec![63u8], vec![b'a'; 63]].concat())
+            .chain([0])
+            .collect();
+        answer(NS, 1, &labels)
+    };
+    let overrunning_name = [
+        &QUESTION_NAME[..],
+        &NS.to_be_bytes(),
+        &1u16.to_be_bytes(),
+        &1u32.to_be_bytes(),
+        &2u16.to_be_bytes(),
+        &[7, b'e', b'x'],
+    ]
+    .concat();
+    let replies: Vec<HostileReply> = vec![
+        Box::new(move |query| response(query, 0, false, std::slice::from_ref(&looping_name))),
+        Box::new(move |query| response(query, 0, false, std::slice::from_ref(&long_name))),
+        Box::new(move |query| response(query, 0, false, std::slice::from_ref(&overrunning_name))),
+    ];
+    for reply in replies {
+        let (server, _) = serve_udp(move |query, _| vec![reply(query)]).await;
+
+        assert_eq!(ask(server, RecordType::Ns).await, DnsAnswer::BadResponse);
+    }
 }

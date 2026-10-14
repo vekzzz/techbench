@@ -21,6 +21,12 @@ const UDP_ATTEMPTS: usize = 2;
 /// Names may point back at earlier names in the message; this bounds how far that is followed.
 const MAX_NAME_JUMPS: usize = 16;
 
+/// The fixed header every DNS message starts with.
+const HEADER_LENGTH: usize = 12;
+
+/// No DNS name is longer than this, written out in labels.
+const MAX_NAME_LENGTH: usize = 255;
+
 const CLASS_IN: u16 = 1;
 const FLAG_RESPONSE: u16 = 0x8000;
 const FLAG_TRUNCATED: u16 = 0x0200;
@@ -64,16 +70,17 @@ async fn over_udp(server: SocketAddr, id: u16, packet: &[u8]) -> Option<Vec<u8>>
     };
     let socket = UdpSocket::bind(local).await.ok()?;
     socket.connect(server).await.ok()?;
-    let mut buffer = [0u8; 4096];
+    // The largest a UDP datagram can be, so no answer is cut short.
+    let mut buffer = vec![0u8; 65535];
     for _ in 0..UDP_ATTEMPTS {
         socket.send(packet).await.ok()?;
         let deadline = tokio::time::Instant::now() + ATTEMPT_TIMEOUT;
         loop {
             match timeout_at(deadline, socket.recv(&mut buffer)).await {
-                Ok(Ok(length)) if length >= 2 && buffer[..2] == id.to_be_bytes() => {
+                Ok(Ok(length)) if answers(&buffer[..length], id, packet) => {
                     return Some(buffer[..length].to_vec());
                 }
-                // Not the answer to this query (or too short to tell): keep waiting.
+                // Not the answer to this query: keep waiting.
                 Ok(Ok(_)) => {}
                 // The port is closed on the server: a reset, not silence, so don't retry.
                 Ok(Err(_)) => return None,
@@ -97,9 +104,20 @@ async fn over_tcp(server: SocketAddr, id: u16, packet: &[u8]) -> Option<Vec<u8>>
         stream.read_exact(&mut reply_length).await.ok()?;
         let mut message = vec![0u8; usize::from(u16::from_be_bytes(reply_length))];
         stream.read_exact(&mut message).await.ok()?;
-        (message.len() >= 2 && message[..2] == id.to_be_bytes()).then_some(message)
+        answers(&message, id, packet).then_some(message)
     };
     timeout(ATTEMPT_TIMEOUT, exchange).await.ok().flatten()
+}
+
+/// Whether `message` is a response to the query `packet` (id `id`): it carries the id, is marked
+/// as a response, and repeats the question that was asked. Anything else is a stray datagram.
+fn answers(message: &[u8], id: u16, packet: &[u8]) -> bool {
+    let question = &packet[HEADER_LENGTH..];
+    message.len() >= HEADER_LENGTH + question.len()
+        && message[..2] == id.to_be_bytes()
+        && u16::from_be_bytes([message[2], message[3]]) & FLAG_RESPONSE != 0
+        // Names are compared without regard to letter case, as DNS does.
+        && message[HEADER_LENGTH..HEADER_LENGTH + question.len()].eq_ignore_ascii_case(question)
 }
 
 /// A query id that differs from one call to the next. It only has to tell this query's answer
@@ -165,6 +183,7 @@ fn decode(message: &[u8]) -> Decoded {
 
 fn try_decode(message: &[u8]) -> Option<Decoded> {
     let flags = u16::from_be_bytes(message.get(2..4)?.try_into().ok()?);
+    message.get(..HEADER_LENGTH)?;
     if flags & FLAG_RESPONSE == 0 {
         return None;
     }
@@ -179,7 +198,7 @@ fn try_decode(message: &[u8]) -> Option<Decoded> {
     let questions = u16::from_be_bytes(message.get(4..6)?.try_into().ok()?);
     let answers = u16::from_be_bytes(message.get(6..8)?.try_into().ok()?);
 
-    let mut at = 12;
+    let mut at = HEADER_LENGTH;
     for _ in 0..questions {
         let (_, after_name) = read_name(message, at)?;
         at = after_name.checked_add(4)?;
@@ -224,10 +243,10 @@ fn read_value(message: &[u8], record_type: RecordType, start: usize, end: usize)
             let octets: [u8; 16] = data.try_into().ok()?;
             Ipv6Addr::from(octets).to_string()
         }
-        RecordType::Ns | RecordType::Cname | RecordType::Ptr => read_name(message, start)?.0,
+        RecordType::Ns | RecordType::Cname | RecordType::Ptr => name_within(message, start, end)?.0,
         RecordType::Mx => {
             let preference = u16::from_be_bytes(data.get(0..2)?.try_into().ok()?);
-            format!("{preference} {}", read_name(message, start + 2)?.0)
+            format!("{preference} {}", name_within(message, start + 2, end)?.0)
         }
         RecordType::Txt => {
             let mut strings = Vec::new();
@@ -240,9 +259,12 @@ fn read_value(message: &[u8], record_type: RecordType, start: usize, end: usize)
             strings.join(" ")
         }
         RecordType::Soa => {
-            let (primary, after_primary) = read_name(message, start)?;
-            let (mailbox, after_mailbox) = read_name(message, after_primary)?;
+            let (primary, after_primary) = name_within(message, start, end)?;
+            let (mailbox, after_mailbox) = name_within(message, after_primary, end)?;
             let timers = message.get(after_mailbox..after_mailbox.checked_add(20)?)?;
+            if after_mailbox + 20 > end {
+                return None;
+            }
             let timer = |index: usize| {
                 u32::from_be_bytes(
                     timers[index * 4..index * 4 + 4]
@@ -262,6 +284,12 @@ fn read_value(message: &[u8], record_type: RecordType, start: usize, end: usize)
     })
 }
 
+/// Like [`read_name`], but the name must be written inside its own record's data, which ends at `end`.
+fn name_within(message: &[u8], at: usize, end: usize) -> Option<(String, usize)> {
+    let (name, after) = read_name(message, at)?;
+    (after <= end).then_some((name, after))
+}
+
 /// Reads a name starting at `at`, following compression pointers. Returns it, and the offset just
 /// past where it was written (a pointer ends the name at the pointer itself).
 fn read_name(message: &[u8], at: usize) -> Option<(String, usize)> {
@@ -269,6 +297,7 @@ fn read_name(message: &[u8], at: usize) -> Option<(String, usize)> {
     let mut position = at;
     let mut end = None;
     let mut jumps = 0;
+    let mut length_so_far = 0;
     loop {
         let length = *message.get(position)?;
         match length {
@@ -292,6 +321,10 @@ fn read_name(message: &[u8], at: usize) -> Option<(String, usize)> {
             }
             length if length & 0xC0 == 0 => {
                 let label = message.get(position + 1..position + 1 + usize::from(length))?;
+                length_so_far += 1 + label.len();
+                if length_so_far > MAX_NAME_LENGTH {
+                    return None;
+                }
                 labels.push(String::from_utf8_lossy(label).into_owned());
                 position += 1 + usize::from(length);
             }

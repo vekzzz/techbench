@@ -414,7 +414,7 @@ fn malformed_input_is_rejected_before_the_lookup_starts() {
             ..request("example.com")
         },
         DnsLookupRequest {
-            server: "dns.google".to_string(),
+            server: "bad..server".to_string(),
             ..request("example.com")
         },
     ];
@@ -429,4 +429,99 @@ fn malformed_input_is_rejected_before_the_lookup_starts() {
 #[test]
 fn a_query_with_an_underscore_is_accepted_because_txt_names_such_as_dmarc_use_them() {
     assert!(request("_dmarc.example.com").validate().is_ok());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_silent_server_is_not_said_to_have_answered_so_no_response_time_is_shown() {
+    let network = FakeNetwork::new().with_dns_answer(
+        GOOGLE,
+        "example.com",
+        RecordType::A,
+        ms(4000),
+        DnsAnswer::NoResponse,
+    );
+
+    let text = lookup(&network, request("example.com")).await.to_text();
+
+    assert!(
+        !text.contains("Answered:") && text.ends_with("No response from 8.8.8.8\n"),
+        "{text}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dns_server_that_is_only_a_link_local_ipv6_address_is_explained_not_called_missing() {
+    let network = FakeNetwork::new()
+        .with_adapters(vec![adapter("Wi-Fi", &["fe80::1"], "10.0.0.23")])
+        .with_route_source(Some("10.0.0.23"));
+
+    let result = lookup(
+        &network,
+        DnsLookupRequest {
+            server: String::new(),
+            ..request("example.com")
+        },
+    )
+    .await;
+
+    assert_eq!(
+        result.summary(),
+        "This PC's only DNS server is fe80::1, a link-local IPv6 address that cannot be reached without its zone: choose one to ask"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_trailing_dot_on_the_name_is_not_reported_as_a_different_name_asked() {
+    let network = answering("example.com", RecordType::A, DnsAnswer::NoRecords);
+
+    let result = lookup(&network, request("example.com.")).await;
+
+    assert!(!result.to_text().contains("Asked:"), "{}", result.to_text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_dns_server_may_be_typed_as_a_hostname_which_is_resolved_first() {
+    let network = FakeNetwork::new()
+        .with_name("dc01.corp.local", &["10.0.0.53"])
+        .with_dns_answer(
+            "10.0.0.53:53",
+            "example.com",
+            RecordType::A,
+            ms(4),
+            DnsAnswer::NoRecords,
+        );
+
+    let result = lookup(
+        &network,
+        DnsLookupRequest {
+            server: "dc01.corp.local".to_string(),
+            ..request("example.com")
+        },
+    )
+    .await;
+
+    assert_eq!(
+        result.to_text().lines().nth(3),
+        Some("Server:    10.0.0.53 (dc01.corp.local)")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dns_server_hostname_that_does_not_resolve_is_reported_as_such() {
+    let network =
+        FakeNetwork::new().with_unresolvable_name("dc01.corp.local", "No such host is known.");
+
+    let result = lookup(
+        &network,
+        DnsLookupRequest {
+            server: "dc01.corp.local".to_string(),
+            ..request("example.com")
+        },
+    )
+    .await;
+
+    assert_eq!(
+        result.summary(),
+        "Could not find the DNS server dc01.corp.local: No such host is known."
+    );
 }

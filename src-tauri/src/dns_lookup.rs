@@ -41,8 +41,12 @@ pub struct DnsLookupResultView {
     record_type: &'static str,
     /// Whether the type was chosen because the query is an IP address.
     automatic_type: bool,
+    /// The server's address, with the name it was typed as when that was a hostname.
     server: Option<String>,
+    /// Only when a server really answered; a silent one took no response time.
     answered_ms: Option<f64>,
+    /// Whether `asked` is worth stating: it differs from what was typed (an address's reverse name).
+    show_asked: bool,
     records: Vec<RecordView>,
     /// Whether the Run ended with an answer worth showing as a failure rather than records.
     failed: bool,
@@ -60,7 +64,9 @@ impl From<DnsLookupResult> for DnsLookupResultView {
     fn from(result: DnsLookupResult) -> Self {
         let reply = match &result.outcome {
             DnsOutcome::Replied(reply) => Some(reply),
-            DnsOutcome::NoServer | DnsOutcome::Stopped => None,
+            DnsOutcome::NoServer { .. }
+            | DnsOutcome::ServerNotFound { .. }
+            | DnsOutcome::Stopped => None,
         };
         let records = match reply {
             Some(DnsReply {
@@ -81,8 +87,9 @@ impl From<DnsLookupResult> for DnsLookupResultView {
             asked: result.asked.clone(),
             record_type: result.record_type.name(),
             automatic_type: result.automatic_type,
-            server: result.server.map(|server| server.to_string()),
-            answered_ms: reply.map(|reply| reply.round_trip.as_secs_f64() * 1000.0),
+            server: result.server.map(|_| result.server_text()),
+            answered_ms: result.answered_in().map(|took| took.as_secs_f64() * 1000.0),
+            show_asked: result.asked_differs(),
             failed: records.is_empty(),
             records,
             summary: result.summary(),

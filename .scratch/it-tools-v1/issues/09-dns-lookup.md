@@ -33,3 +33,16 @@ Spec: user stories 45–51; Implementation Decisions › Network adapter, Per-To
 My choices: names with underscores are accepted (`_dmarc.example.com`); the TXT value shows each string in quotes; the query id comes from the clock and a counter, with the random source port doing the work of making answers hard to spoof.
 
 **Not verified in the running app:** the DNS Lookup screen. I did not attempt the GUI check again after the problems on tickets 07 and 08, so the criterion list is ticked for the core and the real client only. Please try the screen once.
+
+**2026-10-14 — review follow-up (Claude).** Fixed:
+- **A silent server was said to have "answered in 4000 ms".** Response time and the "Answered:" line now appear only when a server really answered; "No response from 8.8.8.8" stands alone. (`DnsLookupResult::answered_in`; the UI follows it.)
+- **A link-local-only DNS server was reported as "no DNS server configured".** The Result now says what happened: "This PC's only DNS server is fe80::1, a link-local IPv6 address that cannot be reached without its zone: choose one to ask".
+- **The server can be typed as a hostname** (`dc01.corp.local`), resolved by the system first; the Result shows `10.0.0.53 (dc01.corp.local)`, or "Could not find the DNS server …".
+- **A trailing dot** (`example.com.`) no longer produces a spurious "Asked:" line, and the UI uses the core's `showAsked` instead of comparing with whatever is currently typed (it went wrong after editing the field).
+- **The UI's "this is an IP address" check** now matches the core's rule for valid addresses (it fired on `1.2.3` and while still typing a partial one).
+- **DNS client hardening** (each with a test): a response must be marked as one and repeat the question asked, so a stray or wrong-question datagram with the right id no longer ends the wait; datagrams up to 64 KB are read (no silent cut-off); names are capped at 255 bytes; a name inside a record cannot run past that record's data; self-pointing names, over-long names and overrunning names give "answer could not be read". The record-type error text is built from the list of types.
+
+Accepted or deferred:
+- **Copying while the lookup runs** (story 83) is not offered: a lookup takes at most about 4 s, and it has no partial Result to show. Copy works as soon as it finishes or is stopped.
+- The query id is clock- and counter-based; the random source port plus matching the question is what makes spoofing hard. The client does not use EDNS (so big answers fall back to TCP) or validate DNSSEC.
+- The screen still labels its field "Name or IP address" rather than "Target", since it takes either and the Tool's meaning differs.

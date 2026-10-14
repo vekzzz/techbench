@@ -8,6 +8,14 @@ import { milliseconds } from "@/lib/format";
 import { DNS_RECORD_TYPES, defaultDnsServer } from "@/lib/toolbox";
 import { useDnsLookup } from "@/store";
 
+/** Whether the text is an IPv4 address (four numbers) or an IPv6 one (hex groups with colons), the way the toolbox core decides. */
+function isIpAddress(text: string) {
+  const unbracketed = text.replace(/^\[(.*)\]$/, "$1");
+  const ipv4 = /^(\d{1,3})(\.\d{1,3}){3}$/.test(unbracketed);
+  const ipv6 = unbracketed.includes(":") && /^[\da-f:.]+$/i.test(unbracketed);
+  return ipv4 || ipv6;
+}
+
 /** Servers worth comparing against this PC's own: well-known public resolvers. */
 const QUICK_SERVERS = ["8.8.8.8", "1.1.1.1"];
 
@@ -23,7 +31,7 @@ export function DnsLookup() {
 
   const result = run?.result;
   // An IP address is always looked up as PTR, whatever type is chosen.
-  const looksLikeAnAddress = /^[\d.]+$|:/.test(input.query.trim());
+  const looksLikeAnAddress = isIpAddress(input.query.trim());
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -74,7 +82,7 @@ export function DnsLookup() {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="dns-server">DNS server</Label>
+          <Label htmlFor="dns-server">DNS server (address or name)</Label>
           <Input
             id="dns-server"
             spellCheck={false}
@@ -116,7 +124,7 @@ export function DnsLookup() {
                 {result.answeredMs !== null && <> answered in {milliseconds(result.answeredMs)}</>}
               </>
             )}
-            {result.asked !== input.query.trim() && (
+            {result.showAsked && (
               <>
                 {" "}
                 · asked <span className="font-mono text-foreground">{result.asked}</span>

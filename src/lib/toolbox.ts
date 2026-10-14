@@ -267,8 +267,12 @@ export type DnsLookupResult = {
   asked: string;
   recordType: DnsRecordType;
   automaticType: boolean;
+  /** The server's address, with the name it was typed as when that was a hostname. */
   server: string | null;
+  /** Only when a server really answered. */
   answeredMs: number | null;
+  /** Whether `asked` is worth stating: it differs from what was typed. */
+  showAsked: boolean;
   records: DnsRecordInfo[];
   /** True when there are no records to show: the summary says why. */
   failed: boolean;
