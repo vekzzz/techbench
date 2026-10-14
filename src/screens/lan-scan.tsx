@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { ActionMenu } from "@/components/action-menu";
 import { CopyResult } from "@/components/copy-result";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { milliseconds } from "@/lib/format";
 import { defaultLanRange, lanRangeInfo, type DeviceInfo } from "@/lib/toolbox";
-import { useLanScan, type LanScanRun } from "@/store";
+import { useAppStore, useLanScan, type LanScanRun } from "@/store";
 
 /** Whether the default range has been offered yet: it is offered once, so clearing the field sticks. */
 let defaultOffered = false;
@@ -117,8 +118,33 @@ function addressKey(address: string) {
   return address.split(".").reduce((key, part) => key * 256 + Number(part), 0);
 }
 
+const SORTS = [
+  { id: "ip", label: "IP" },
+  { id: "hostname", label: "Hostname" },
+  { id: "vendor", label: "Vendor" },
+] as const;
+
+/** Devices matching the filter text (in any of IP, hostname, MAC or vendor), in the chosen order. Devices without the sorted-by detail come last. */
+function visibleDevices(devices: DeviceInfo[], sort: "ip" | "hostname" | "vendor", filter: string) {
+  const needle = filter.trim().toLowerCase();
+  const shown = devices.filter(
+    (device) =>
+      needle === "" ||
+      [device.address, device.hostname, device.mac, device.vendor].some((field) => field?.toLowerCase().includes(needle)),
+  );
+  const byAddress = (a: DeviceInfo, b: DeviceInfo) => addressKey(a.address) - addressKey(b.address);
+  const byText = (field: "hostname" | "vendor") => (a: DeviceInfo, b: DeviceInfo) => {
+    const [left, right] = [a[field], b[field]];
+    if (left === null || right === null) return left === right ? byAddress(a, b) : left === null ? 1 : -1;
+    return left.localeCompare(right, undefined, { sensitivity: "base" }) || byAddress(a, b);
+  };
+  return shown.sort(sort === "ip" ? byAddress : byText(sort));
+}
+
 function RunView({ run }: { run: LanScanRun }) {
-  const devices = [...run.devices].sort((a, b) => addressKey(a.address) - addressKey(b.address));
+  const { sort, filter } = useAppStore((state) => state.lanScanView);
+  const updateView = useAppStore((state) => state.updateLanScanView);
+  const devices = visibleDevices(run.devices, sort, filter);
   const total = run.total ?? 0;
 
   return (
@@ -130,14 +156,48 @@ function RunView({ run }: { run: LanScanRun }) {
           </div>
           <p className="text-xs text-muted-foreground">
             Scanning… {run.probed.toLocaleString("en-US")} of {total.toLocaleString("en-US")} addresses probed,{" "}
-            {devices.length} Device{devices.length === 1 ? "" : "s"} found
+            {run.devices.length} Device{run.devices.length === 1 ? "" : "s"} found
           </p>
         </div>
       )}
+      {run.devices.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            aria-label="Filter Devices"
+            spellCheck={false}
+            autoComplete="off"
+            className="max-w-64"
+            placeholder="Filter by IP, hostname, MAC or vendor"
+            value={filter}
+            onChange={(event) => updateView({ filter: event.target.value })}
+          />
+          <div role="radiogroup" aria-label="Sort Devices by" className="flex items-center gap-1">
+            <span className="mr-1 text-xs text-muted-foreground">Sort by</span>
+            {SORTS.map((option) => (
+              <Button
+                key={option.id}
+                type="button"
+                size="xs"
+                role="radio"
+                aria-checked={sort === option.id}
+                variant={sort === option.id ? "secondary" : "outline"}
+                onClick={() => updateView({ sort: option.id })}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          {devices.length !== run.devices.length && (
+            <span className="text-xs text-muted-foreground">
+              {devices.length} of {run.devices.length} shown
+            </span>
+          )}
+        </div>
+      )}
       {devices.length > 0 && <DeviceTable devices={devices} />}
-      {devices.some((device) => !device.onOwnSubnet) && (
+      {run.devices.some((device) => !device.onOwnSubnet) && (
         <p className="text-xs text-muted-foreground">
-          MAC is blank for Devices beyond this PC's own subnet: ARP does not cross routers.
+          MAC and vendor are blank for Devices beyond this PC's own subnet: ARP does not cross routers.
         </p>
       )}
       {run.result && <p className="text-xs text-muted-foreground">{run.result.summary}</p>}
@@ -151,8 +211,11 @@ function DeviceTable({ devices }: { devices: DeviceInfo[] }) {
       <thead className="bg-muted/40 text-left text-muted-foreground">
         <tr>
           <th className="px-3 py-1.5 font-normal">IP</th>
+          <th className="px-3 py-1.5 font-normal">Hostname</th>
           <th className="px-3 py-1.5 font-normal">MAC</th>
+          <th className="px-3 py-1.5 font-normal">Vendor</th>
           <th className="px-3 py-1.5 font-normal">Response time</th>
+          <th className="px-3 py-1.5 font-normal" />
           <th className="px-3 py-1.5 font-normal" />
         </tr>
       </thead>
@@ -160,7 +223,9 @@ function DeviceTable({ devices }: { devices: DeviceInfo[] }) {
         {devices.map((device) => (
           <tr key={device.address} className="border-t">
             <td className="px-3 py-1.5 font-mono">{device.address}</td>
+            <td className="px-3 py-1.5 text-muted-foreground">{device.hostname ?? "-"}</td>
             <td className="px-3 py-1.5 font-mono">{device.mac ?? "-"}</td>
+            <td className="px-3 py-1.5 text-muted-foreground">{device.vendor ?? "-"}</td>
             <td className="px-3 py-1.5 font-mono">{milliseconds(device.responseMs)}</td>
             <td className="px-3 py-1.5">
               {device.noPingReply && (
@@ -168,6 +233,9 @@ function DeviceTable({ devices }: { devices: DeviceInfo[] }) {
                   no ping reply
                 </Badge>
               )}
+            </td>
+            <td className="px-3 py-1.5 text-right">
+              <ActionMenu address={device.address} hostname={device.hostname} saveable />
             </td>
           </tr>
         ))}

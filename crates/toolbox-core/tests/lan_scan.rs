@@ -14,6 +14,10 @@ use toolbox_core::run::{Progress, RunEnding};
 
 const MAC_A: [u8; 6] = [0xAA, 0xBB, 0xCC, 0x01, 0x02, 0x03];
 const MAC_B: [u8; 6] = [0xAA, 0xBB, 0xCC, 0x01, 0x02, 0x04];
+/// Registered to the Raspberry Pi Foundation.
+const MAC_PI: [u8; 6] = [0xB8, 0x27, 0xEB, 0x01, 0x02, 0x03];
+/// Registered to Google.
+const MAC_GOOGLE: [u8; 6] = [0x00, 0x1A, 0x11, 0x0A, 0x0B, 0x0C];
 
 fn request(range: &str) -> LanScanRequest {
     LanScanRequest {
@@ -356,6 +360,8 @@ async fn a_device_that_answers_the_ping_is_found_with_its_response_time() {
             response_time: Some(ms(3)),
             no_ping_reply: false,
             on_own_subnet: true,
+            hostname: None,
+            vendor: None,
         }]
     );
 }
@@ -374,6 +380,8 @@ async fn on_the_pcs_own_subnet_a_device_that_answers_arp_but_not_ping_is_found_a
             response_time: None,
             no_ping_reply: true,
             on_own_subnet: true,
+            hostname: None,
+            vendor: None,
         }]
     );
 }
@@ -393,6 +401,8 @@ async fn on_the_pcs_own_subnet_a_device_that_answers_both_shows_its_mac_and_resp
             response_time: Some(ms(2)),
             no_ping_reply: false,
             on_own_subnet: true,
+            hostname: None,
+            vendor: None,
         }]
     );
 }
@@ -423,6 +433,8 @@ async fn off_the_pcs_own_subnet_only_the_ping_can_find_a_device_and_it_has_no_ma
             response_time: Some(ms(12)),
             no_ping_reply: false,
             on_own_subnet: false,
+            hostname: None,
+            vendor: None,
         }]
     );
     assert_eq!(network.arp_requests(), Vec::<Ipv4Addr>::new());
@@ -616,8 +628,8 @@ Range:     10.0.0.5-10.0.0.6 (2 addresses)
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-IP        MAC  RESPONSE TIME  NOTE
-10.0.0.5  -    3 ms
+IP        HOSTNAME  MAC  VENDOR  RESPONSE TIME  NOTE
+10.0.0.5  -         -    -       3 ms
 
 Still scanning: 1 of 2 addresses probed, 1 Device found so far
 "
@@ -643,10 +655,10 @@ Range:     10.0.0.0/24 (254 addresses)
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-IP         MAC                RESPONSE TIME  NOTE
-10.0.0.1   AA-BB-CC-01-02-03  1 ms
-10.0.0.9   AA-BB-CC-01-02-04  -              no ping reply
-10.0.0.30  -                  14 ms
+IP         HOSTNAME  MAC                VENDOR  RESPONSE TIME  NOTE
+10.0.0.1   -         AA-BB-CC-01-02-03  -       1 ms
+10.0.0.9   -         AA-BB-CC-01-02-04  -       -              no ping reply
+10.0.0.30  -         -                  -       14 ms
 
 Found 3 Devices among 254 addresses; 1 with no ping reply
 "
@@ -666,11 +678,11 @@ Range:     172.16.0.5-172.16.0.6 (2 addresses)
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-IP          MAC  RESPONSE TIME  NOTE
-172.16.0.5  -    12 ms
+IP          HOSTNAME  MAC  VENDOR  RESPONSE TIME  NOTE
+172.16.0.5  -         -    -       12 ms
 
 Found 1 Device among 2 addresses
-MAC is blank for devices beyond this PC's own subnet: ARP does not cross routers.
+MAC and vendor are blank for devices beyond this PC's own subnet: ARP does not cross routers.
 "
     );
 }
@@ -706,10 +718,220 @@ Range:     10.0.0.5-10.0.0.6 (2 addresses)
 Time:      2026-10-13 14:05:09 +08:00
 From:      TECH-PC (10.0.0.23)
 
-IP        MAC  RESPONSE TIME  NOTE
-10.0.0.5  -    3 ms
+IP        HOSTNAME  MAC  VENDOR  RESPONSE TIME  NOTE
+10.0.0.5  -         -    -       3 ms
 
 Stopped after probing 1 of 2 addresses: 1 Device found
+"
+    );
+}
+
+// --- Hostnames and vendors ---------------------------------------------------------------------
+
+#[test]
+fn the_vendor_comes_from_the_bundled_registry_by_mac_prefix() {
+    assert_eq!(
+        (
+            toolbox_core::oui::vendor(MAC_PI),
+            toolbox_core::oui::vendor(MAC_GOOGLE),
+            toolbox_core::oui::vendor(MAC_A),
+        ),
+        (Some("Raspberry Pi Foundation"), Some("Google, Inc."), None)
+    );
+}
+
+#[test]
+fn only_the_first_three_bytes_of_the_mac_matter_to_the_vendor() {
+    let other_device = [0xB8, 0x27, 0xEB, 0xFF, 0xFF, 0xFF];
+
+    assert_eq!(
+        toolbox_core::oui::vendor(other_device),
+        toolbox_core::oui::vendor(MAC_PI)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_found_by_arp_shows_the_vendor_of_its_mac() {
+    let network = pc_on_lan()
+        .with_arp("10.0.0.9", MAC_PI)
+        .with_arp("10.0.0.10", MAC_A);
+
+    let result = scan(&network, "10.0.0.8-10.0.0.11").await;
+
+    let vendors: Vec<_> = result
+        .devices
+        .iter()
+        .map(|device| device.vendor.as_deref())
+        .collect();
+    assert_eq!(vendors, [Some("Raspberry Pi Foundation"), None]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_beyond_the_pcs_subnet_has_no_vendor() {
+    let network = reply("172.16.0.5", 12)(pc_on_lan());
+
+    let result = scan(&network, "172.16.0.5").await;
+
+    assert_eq!(result.devices[0].vendor, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hostname_arrives_after_its_device_without_holding_up_the_scan() {
+    let network = reply("10.0.0.5", 3)(pc_on_lan()).with_slow_reverse_name(
+        "10.0.0.5",
+        ms(1500),
+        "fs01.corp.local",
+    );
+    let scan_of = confirmed("10.0.0.5-10.0.0.69").validate().unwrap();
+    let mut events = Vec::new();
+    let started = tokio::time::Instant::now();
+
+    let result = lan_scan::run(&network, &scan_of, &CancellationToken::new(), |event| {
+        events.push(event)
+    })
+    .await;
+
+    // The 63 silent addresses take 1 s to probe; the 1.5 s name lookup runs beside them, so the
+    // scan ends at 1.5 s, not at 1 s + 1.5 s.
+    assert_eq!(started.elapsed(), ms(1500));
+    assert_eq!(
+        result.devices[0].hostname.as_deref(),
+        Some("fs01.corp.local")
+    );
+    let device_at = events
+        .iter()
+        .position(|event| matches!(event, LanScanEvent::Device(_)))
+        .unwrap();
+    let hostname_at = events
+        .iter()
+        .position(|event| matches!(event, LanScanEvent::Hostname { .. }))
+        .unwrap();
+    assert!(device_at < hostname_at, "{events:?}");
+    assert_eq!(
+        events[hostname_at],
+        LanScanEvent::Hostname {
+            address: v4("10.0.0.5"),
+            hostname: "fs01.corp.local".to_string()
+        }
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_device_event_carries_no_hostname_yet() {
+    let network =
+        reply("10.0.0.5", 3)(pc_on_lan()).with_reverse_name("10.0.0.5", "fs01.corp.local");
+    let scan_of = confirmed("10.0.0.5").validate().unwrap();
+    let mut events = Vec::new();
+
+    lan_scan::run(&network, &scan_of, &CancellationToken::new(), |event| {
+        events.push(event)
+    })
+    .await;
+
+    let announced = events.iter().find_map(|event| match event {
+        LanScanEvent::Device(device) => Some(device.hostname.clone()),
+        _ => None,
+    });
+    assert_eq!(announced, Some(None));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_whose_address_has_no_name_stays_without_one() {
+    let network = reply("10.0.0.5", 3)(pc_on_lan());
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(result.devices[0].hostname, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_name_lookup_that_takes_more_than_two_seconds_is_abandoned() {
+    let network = reply("10.0.0.5", 3)(pc_on_lan()).with_slow_reverse_name(
+        "10.0.0.5",
+        ms(5000),
+        "fs01.corp.local",
+    );
+    let started = tokio::time::Instant::now();
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(
+        (
+            result.devices[0].hostname.clone(),
+            result.ending,
+            started.elapsed()
+        ),
+        (None, RunEnding::Completed, ms(2000))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_result_so_far_holds_a_hostname_once_it_has_arrived() {
+    let network = reply("10.0.0.5", 3)(pc_on_lan())
+        .with_reverse_name("10.0.0.5", "fs01.corp.local")
+        .with_echoes("10.0.0.6", [EchoScript::Hang]);
+    let scan_of = confirmed("10.0.0.5-10.0.0.6").validate().unwrap();
+    let progress = Progress::default();
+    let stop = CancellationToken::new();
+
+    let (_, hostname) = tokio::join!(
+        lan_scan::run_with_progress(&network, &scan_of, &stop, &progress, |_| {}),
+        async {
+            tokio::time::sleep(ms(500)).await;
+            let hostname = progress.read(|result| result.devices[0].hostname.clone());
+            stop.cancel();
+            hostname
+        }
+    );
+
+    assert_eq!(hostname, Some(Some("fs01.corp.local".to_string())));
+}
+
+#[tokio::test(start_paused = true)]
+async fn stopping_while_names_are_still_being_looked_up_keeps_the_scan_completed() {
+    let network = reply("10.0.0.5", 3)(pc_on_lan()).with_slow_reverse_name(
+        "10.0.0.5",
+        ms(1500),
+        "fs01.corp.local",
+    );
+    let scan_of = confirmed("10.0.0.5").validate().unwrap();
+    let stop = CancellationToken::new();
+
+    let (result, ()) = tokio::join!(lan_scan::run(&network, &scan_of, &stop, |_| {}), async {
+        tokio::time::sleep(ms(500)).await;
+        stop.cancel();
+    });
+
+    // Every address had been probed; only the names were abandoned.
+    assert_eq!(
+        (result.ending, result.devices[0].hostname.clone()),
+        (RunEnding::Completed, None)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn copy_as_text_includes_hostname_and_vendor() {
+    let network = reply("10.0.0.1", 1)(pc_on_lan())
+        .with_arp("10.0.0.1", MAC_PI)
+        .with_reverse_name("10.0.0.1", "gateway.corp.local")
+        .with_arp("10.0.0.9", MAC_GOOGLE);
+    let network = reply("10.0.0.30", 14)(network);
+
+    let result = scan(&network, "10.0.0.0/24").await;
+
+    assert_eq!(
+        result.to_text(),
+        "LAN Scan
+Range:     10.0.0.0/24 (254 addresses)
+Time:      2026-10-13 14:05:09 +08:00
+From:      TECH-PC (10.0.0.23)
+
+IP         HOSTNAME            MAC                VENDOR                   RESPONSE TIME  NOTE
+10.0.0.1   gateway.corp.local  B8-27-EB-01-02-03  Raspberry Pi Foundation  1 ms
+10.0.0.9   -                   00-1A-11-0A-0B-0C  Google, Inc.             -              no ping reply
+10.0.0.30  -                   -                  -                        14 ms
+
+Found 3 Devices among 254 addresses; 1 with no ping reply
 "
     );
 }

@@ -23,17 +23,34 @@ pub struct LanScanInput {
 #[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum LanScanUpdate {
-    Started { addresses: usize },
-    Device { device: DeviceView },
-    Progress { probed: usize, total: usize },
-    Finished { result: LanScanResultView },
+    Started {
+        addresses: usize,
+    },
+    Device {
+        device: DeviceView,
+    },
+    /// A Device's hostname, found after the Device was reported.
+    Hostname {
+        address: String,
+        hostname: String,
+    },
+    Progress {
+        probed: usize,
+        total: usize,
+    },
+    Finished {
+        result: LanScanResultView,
+    },
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceView {
     address: String,
+    hostname: Option<String>,
     mac: Option<String>,
+    /// From the MAC's registered prefix.
+    vendor: Option<String>,
     response_ms: Option<f64>,
     /// It answered ARP but not the ping.
     no_ping_reply: bool,
@@ -58,6 +75,8 @@ impl From<Device> for DeviceView {
     fn from(device: Device) -> Self {
         Self {
             address: device.address.to_string(),
+            hostname: device.hostname,
+            vendor: device.vendor,
             mac: device.mac.map(format_mac),
             response_ms: device.response_time.map(|took| took.as_secs_f64() * 1000.0),
             no_ping_reply: device.no_ping_reply,
@@ -72,6 +91,10 @@ impl From<LanScanEvent> for LanScanUpdate {
             LanScanEvent::Started { addresses } => LanScanUpdate::Started { addresses },
             LanScanEvent::Device(device) => LanScanUpdate::Device {
                 device: device.into(),
+            },
+            LanScanEvent::Hostname { address, hostname } => LanScanUpdate::Hostname {
+                address: address.to_string(),
+                hostname,
             },
             LanScanEvent::Progress { probed, total } => LanScanUpdate::Progress { probed, total },
         }

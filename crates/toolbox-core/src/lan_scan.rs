@@ -5,12 +5,15 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
-use futures_util::{StreamExt, stream};
+use futures_util::StreamExt;
+use futures_util::stream::{self, FuturesUnordered};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
 use crate::ip_info::{self, format_mac};
 use crate::network::{AdapterKind, EchoOutcome, EchoRequest, Network};
+use crate::oui;
 use crate::ping::DEFAULT_PAYLOAD_SIZE;
 use crate::run::{Progress, RunEnding, RunHeader, TIME_FORMAT, milliseconds, text_table};
 
@@ -19,6 +22,12 @@ const PARALLEL_PROBES: usize = 64;
 
 /// How long each address has to answer the ping, and again the ARP request.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// How long a Device's reverse lookup may take before it is left without a hostname.
+const HOSTNAME_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How many reverse lookups run at once: each holds a thread, and a big scan can find many Devices.
+const PARALLEL_NAME_LOOKUPS: usize = 16;
 
 /// The most addresses a range may span and still run without the Technician's confirmation.
 const FREE_LIMIT: u64 = 1024;
@@ -231,6 +240,10 @@ pub struct Device {
     pub no_ping_reply: bool,
     /// Whether the address is on a subnet this PC is directly connected to.
     pub on_own_subnet: bool,
+    /// From a reverse lookup, which arrives after the Device is first reported ([`LanScanEvent::Hostname`]).
+    pub hostname: Option<String>,
+    /// From the MAC's registered prefix, so only known for a Device whose MAC is.
+    pub vendor: Option<String>,
 }
 
 /// Progress a LAN Scan Run reports as it goes.
@@ -240,6 +253,11 @@ pub enum LanScanEvent {
         addresses: usize,
     },
     Device(Device),
+    /// A Device's hostname, found after the Device itself was reported.
+    Hostname {
+        address: Ipv4Addr,
+        hostname: String,
+    },
     /// How many addresses have been probed so far; not sent for every address of a big scan.
     Progress {
         probed: usize,
@@ -281,7 +299,7 @@ impl LanScanResult {
         text.push('\n');
         if self.devices.iter().any(|device| !device.on_own_subnet) {
             text.push_str(
-                "MAC is blank for devices beyond this PC's own subnet: ARP does not cross routers.\n",
+                "MAC and vendor are blank for devices beyond this PC's own subnet: ARP does not cross routers.\n",
             );
         }
         text
@@ -330,9 +348,12 @@ impl LanScanResult {
             .devices
             .iter()
             .map(|device| {
+                let or_dash = |text: Option<&str>| text.unwrap_or("-").to_string();
                 vec![
                     device.address.to_string(),
+                    or_dash(device.hostname.as_deref()),
                     device.mac.map_or_else(|| "-".to_string(), format_mac),
+                    or_dash(device.vendor.as_deref()),
                     device
                         .response_time
                         .map_or_else(|| "-".to_string(), milliseconds),
@@ -344,7 +365,10 @@ impl LanScanResult {
                 ]
             })
             .collect();
-        text_table(&["IP", "MAC", "RESPONSE TIME", "NOTE"], &rows)
+        text_table(
+            &["IP", "HOSTNAME", "MAC", "VENDOR", "RESPONSE TIME", "NOTE"],
+            &rows,
+        )
     }
 }
 
@@ -411,14 +435,40 @@ pub async fn run_with_progress(
     let progress_every = (total / 100).max(1);
     let mut probing = stream::iter(scan.addresses())
         .map(|address| probe(network, address, &own_subnets))
-        .buffer_unordered(PARALLEL_PROBES);
+        .buffer_unordered(PARALLEL_PROBES)
+        .fuse();
+    // Reverse lookups run beside the probing, so a slow name never holds up the scan.
+    let name_slots = Semaphore::new(PARALLEL_NAME_LOOKUPS);
+    let mut lookups = FuturesUnordered::new();
 
     let mut probed = 0;
     let ending = loop {
-        match stop.run_until_cancelled(probing.next()).await {
-            Some(Some(found)) => {
+        if probing.is_done() && lookups.is_empty() {
+            break RunEnding::Completed;
+        }
+        tokio::select! {
+            biased;
+            () = stop.cancelled() => {
+                // Once every address is probed, stopping only abandons the names still coming in.
+                break if probing.is_done() { RunEnding::Completed } else { RunEnding::Stopped };
+            }
+            Some((address, hostname)) = lookups.next(), if !lookups.is_empty() => {
+                let Some(hostname): Option<String> = hostname else {
+                    continue;
+                };
+                progress.update(|result| {
+                    if let Some(device) = result.devices.iter_mut().find(|device| device.address == address) {
+                        device.hostname = Some(hostname.clone());
+                    }
+                });
+                on_event(LanScanEvent::Hostname { address, hostname });
+            }
+            finished = probing.next(), if !probing.is_done() => {
+                // The end of the stream: the loop's first check then decides whether names are still due.
+                let Some(found) = finished else { continue };
                 probed += 1;
                 if let Some(device) = found {
+                    lookups.push(look_up_hostname(network, &name_slots, device.address));
                     // Kept in IP order as they arrive, so the Result reads well at any moment.
                     progress.update(|result| {
                         let at = result
@@ -433,14 +483,29 @@ pub async fn run_with_progress(
                     on_event(LanScanEvent::Progress { probed, total });
                 }
             }
-            Some(None) => break RunEnding::Completed,
-            None => break RunEnding::Stopped,
         }
     };
     progress.update(|result| result.ending = ending);
     progress
         .read(Clone::clone)
         .expect("the Run opened, so its Result exists")
+}
+
+/// Reverse-looks-up `address` once a lookup slot is free, giving up after [`HOSTNAME_TIMEOUT`].
+async fn look_up_hostname(
+    network: &impl Network,
+    slots: &Semaphore,
+    address: Ipv4Addr,
+) -> (Ipv4Addr, Option<String>) {
+    let _slot = slots.acquire().await;
+    let name = tokio::time::timeout(
+        HOSTNAME_TIMEOUT,
+        network.reverse_lookup(IpAddr::V4(address)),
+    )
+    .await
+    .ok()
+    .flatten();
+    (address, name)
 }
 
 /// Pings `address`, and on this PC's own subnet asks ARP at the same time. A Device exists if
@@ -477,6 +542,8 @@ async fn probe(
         response_time,
         no_ping_reply: response_time.is_none(),
         on_own_subnet,
+        hostname: None,
+        vendor: mac.and_then(oui::vendor).map(str::to_string),
     })
 }
 

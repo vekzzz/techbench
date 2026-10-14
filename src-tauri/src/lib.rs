@@ -7,15 +7,24 @@ mod lan_scan;
 mod ping;
 mod port_check;
 mod runs;
+mod saved_targets;
 mod subnet;
 mod traceroute;
 
 use std::sync::Arc;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(runs::Runs::default()))
+        .setup(|app| {
+            let folder = app.path().app_data_dir()?;
+            app.manage(saved_targets::SavedTargets::open(folder));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             subnet::calculate_subnet,
             subnet::subnet_contains,
@@ -32,6 +41,12 @@ pub fn run() {
             port_check::port_presets,
             port_check::start_port_check,
             traceroute::start_traceroute,
+            saved_targets::list_saved_targets,
+            saved_targets::create_saved_target,
+            saved_targets::update_saved_target,
+            saved_targets::delete_saved_target,
+            saved_targets::export_saved_targets,
+            saved_targets::import_saved_targets,
             runs::run_text,
             runs::stop_run,
         ])

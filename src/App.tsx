@@ -1,6 +1,7 @@
 import { Moon02Icon, Sun01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
@@ -25,6 +26,7 @@ import { IpInfo } from "@/screens/ip-info";
 import { LanScan } from "@/screens/lan-scan";
 import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
+import { SavedTargets } from "@/screens/saved-targets";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
 import { Traceroute } from "@/screens/traceroute";
 import { useAppStore } from "@/store";
@@ -45,11 +47,27 @@ function App() {
             <span className="truncate text-xs text-muted-foreground">{screen.summary}</span>
           </header>
           <main className="flex-1 overflow-auto p-6">
+            <Notice />
             <ScreenContent screen={screen} />
           </main>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
+  );
+}
+
+/** A message that stays until dismissed, e.g. why a Cross-Tool action did not start. */
+function Notice() {
+  const notice = useAppStore((state) => state.notice);
+  const showNotice = useAppStore((state) => state.showNotice);
+  if (notice === null) return null;
+  return (
+    <div role="status" className="mb-4 flex max-w-3xl items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs">
+      <span>{notice}</span>
+      <Button type="button" size="xs" variant="ghost" onClick={() => showNotice(null)}>
+        Dismiss
+      </Button>
+    </div>
   );
 }
 
@@ -69,6 +87,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
       return <PortCheck />;
     case "lan-scan":
       return <LanScan />;
+    case "saved-targets":
+      return <SavedTargets />;
     default:
       return <ComingSoon screen={screen} />;
   }

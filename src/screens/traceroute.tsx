@@ -1,3 +1,4 @@
+import { ActionMenu } from "@/components/action-menu";
 import { CopyResult } from "@/components/copy-result";
 import { TargetInput } from "@/components/target-input";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,7 @@ function HopTable({ hops }: { hops: HopInfo[] }) {
           <th className="px-3 py-1.5 font-normal" colSpan={3}>
             Round trips
           </th>
+          <th className="px-3 py-1.5 font-normal" />
         </tr>
       </thead>
       <tbody>
@@ -89,6 +91,10 @@ function HopTable({ hops }: { hops: HopInfo[] }) {
                 {probeText(probe)}
               </td>
             ))}
+            <td className="px-3 py-1.5 text-right">
+              {/* A Hop whose probes were all silent has no address, so nothing to follow. */}
+              {hop.address && <ActionMenu address={hop.address} hostname={hop.hostname} saveable />}
+            </td>
           </tr>
         ))}
       </tbody>

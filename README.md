@@ -61,3 +61,7 @@ To uninstall, use **Settings → Apps → Installed apps → IT Tools → Uninst
 | `crates/toolbox-core/` | Every Tool's behaviour, with no dependency on Tauri or the UI. Tests live here. |
 | `src-tauri/` | The Tauri shell, which exposes the toolbox core to the UI. |
 | `src/` | The React + TypeScript UI. |
+
+## Vendor data
+
+LAN Scan names a Device's vendor from the IEEE OUI registry, compiled into the app from `crates/toolbox-core/data/oui.tsv`, so the installer carries it and lookups work offline. To refresh it, run `python scripts/update-oui.py` (needs internet) and rebuild.

@@ -19,6 +19,14 @@ type AppState = {
   continuousTargets: number;
   setContinuousTargets: (count: number) => void;
 
+  /** A message for the Technician that stays until dismissed, e.g. why a Cross-Tool action did not start. */
+  notice: string | null;
+  showNotice: (notice: string | null) => void;
+
+  /** How LAN Scan lists its Devices. */
+  lanScanView: { sort: "ip" | "hostname" | "vendor"; filter: string };
+  updateLanScanView: (patch: Partial<AppState["lanScanView"]>) => void;
+
   subnetCalculator: { input: string; check: string };
   updateSubnetCalculator: (patch: Partial<AppState["subnetCalculator"]>) => void;
 };
@@ -31,6 +39,12 @@ export const useAppStore = create<AppState>((set) => ({
   setPingMode: (pingMode) => set({ pingMode }),
   continuousTargets: 1,
   setContinuousTargets: (count) => set({ continuousTargets: Math.min(3, Math.max(1, count)) }),
+
+  notice: null,
+  showNotice: (notice) => set({ notice }),
+
+  lanScanView: { sort: "ip", filter: "" },
+  updateLanScanView: (patch) => set((state) => ({ lanScanView: { ...state.lanScanView, ...patch } })),
 
   subnetCalculator: { input: "", check: "" },
   updateSubnetCalculator: (patch) =>
@@ -251,6 +265,13 @@ export const useLanScan = createRunStore({
         return { ...run, total: update.addresses };
       case "device":
         return { ...run, devices: [...run.devices, update.device] };
+      case "hostname":
+        return {
+          ...run,
+          devices: run.devices.map((device) =>
+            device.address === update.address ? { ...device, hostname: update.hostname } : device,
+          ),
+        };
       case "progress":
         return { ...run, probed: update.probed, total: update.total };
       case "finished":
@@ -258,3 +279,46 @@ export const useLanScan = createRunStore({
     }
   },
 });
+
+/** The Technician's Saved Targets, loaded from the toolbox core and kept in step with every change. */
+type SavedTargetsState = {
+  targets: toolbox.SavedTarget[];
+  /** Why the list could not be read, e.g. a damaged file. */
+  error: string | null;
+  loaded: boolean;
+  load: () => Promise<void>;
+  /** Each of these rejects with the core's message when the input is invalid. */
+  create: (input: toolbox.SavedTargetInput) => Promise<void>;
+  update: (id: number, input: toolbox.SavedTargetInput) => Promise<void>;
+  remove: (id: number) => Promise<void>;
+  /** A Saved Target waiting to be filled in on the Saved Targets screen (Save as Target from a Device or Hop). */
+  draft: toolbox.SavedTargetInput | null;
+  setDraft: (draft: toolbox.SavedTargetInput | null) => void;
+};
+
+export const useSavedTargets = create<SavedTargetsState>((set, get) => ({
+  targets: [],
+  error: null,
+  loaded: false,
+  load: async () => {
+    try {
+      set({ targets: await toolbox.listSavedTargets(), error: null, loaded: true });
+    } catch (reason) {
+      set({ error: String(reason), loaded: true });
+    }
+  },
+  create: async (input) => {
+    await toolbox.createSavedTarget(input);
+    await get().load();
+  },
+  update: async (id, input) => {
+    await toolbox.updateSavedTarget(id, input);
+    await get().load();
+  },
+  remove: async (id) => {
+    await toolbox.deleteSavedTarget(id);
+    await get().load();
+  },
+  draft: null,
+  setDraft: (draft) => set({ draft }),
+}));

@@ -302,8 +302,12 @@ export function defaultDnsServer(): Promise<string | null> {
 /** One Device LAN Scan found present at an address. */
 export type DeviceInfo = {
   address: string;
+  /** From a reverse lookup, which arrives after the Device is first reported. */
+  hostname: string | null;
   /** Only known for a Device on this PC's own subnet, where ARP reaches. */
   mac: string | null;
+  /** From the MAC's registered prefix, so only known for a Device whose MAC is. */
+  vendor: string | null;
   responseMs: number | null;
   /** It answered ARP but not the ping. */
   noPingReply: boolean;
@@ -327,6 +331,7 @@ export type LanScanResult = {
 export type LanScanUpdate =
   | { kind: "started"; addresses: number }
   | { kind: "device"; device: DeviceInfo }
+  | { kind: "hostname"; address: string; hostname: string }
   | { kind: "progress"; probed: number; total: number }
   | { kind: "finished"; result: LanScanResult };
 
@@ -367,4 +372,37 @@ export function calculateSubnet(input: string): Promise<SubnetReport> {
 
 export function subnetContains(input: string, address: string): Promise<boolean> {
   return invoke("subnet_contains", { input, address });
+}
+
+/** A Target stored under a label. */
+export type SavedTarget = { id: number; label: string; address: string; note: string | null };
+
+/** As typed: an empty note means none. The toolbox core validates the label and address. */
+export type SavedTargetInput = { label: string; address: string; note: string };
+
+/** Every call rejects with a message the Technician can read, e.g. when the address is invalid. */
+export function listSavedTargets(): Promise<SavedTarget[]> {
+  return invoke("list_saved_targets");
+}
+
+export function createSavedTarget(input: SavedTargetInput): Promise<SavedTarget> {
+  return invoke("create_saved_target", { input });
+}
+
+export function updateSavedTarget(id: number, input: SavedTargetInput): Promise<SavedTarget> {
+  return invoke("update_saved_target", { id, input });
+}
+
+export function deleteSavedTarget(id: number): Promise<void> {
+  return invoke("delete_saved_target", { id });
+}
+
+/** Writes every Saved Target to the JSON file at `path`. */
+export function exportSavedTargets(path: string): Promise<void> {
+  return invoke("export_saved_targets", { path });
+}
+
+/** Adds the Saved Targets in the JSON file at `path`, skipping any whose label and address both match one already stored. */
+export function importSavedTargets(path: string): Promise<{ added: number; skipped: number }> {
+  return invoke("import_saved_targets", { path });
 }
