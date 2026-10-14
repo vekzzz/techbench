@@ -83,34 +83,38 @@ impl LanScanRequest {
     /// Reads the range and applies the size policy: up to 1,024 addresses runs freely, up to
     /// 65,536 needs confirmation, and anything larger is refused.
     pub fn check_range(&self) -> Result<RangeCheck, InputError> {
-        let range = parse_range(&self.range)?;
-        if range.spanned > REFUSED_ABOVE {
-            return Err(InputError::new(format!(
-                "{} addresses is more than LAN Scan will sweep (65,536, a /16); narrow the range",
-                with_thousands(range.spanned)
-            )));
-        }
-        Ok(RangeCheck {
-            addresses: (range.last - range.first) as usize + 1,
-            needs_confirmation: range.spanned > FREE_LIMIT,
-        })
+        check(&parse_range(&self.range)?)
     }
 
     pub fn validate(&self) -> Result<LanScan, InputError> {
-        let check = self.check_range()?;
+        let range = parse_range(&self.range)?;
+        let check = check(&range)?;
         if check.needs_confirmation && !self.confirmed {
             return Err(InputError::new(format!(
                 "{} addresses is a big sweep; confirm to scan it",
                 with_thousands(check.addresses as u64)
             )));
         }
-        let range = parse_range(&self.range)?;
         Ok(LanScan {
             text: range.text,
             first: range.first,
             last: range.last,
         })
     }
+}
+
+/// Applies the size policy to a parsed range.
+fn check(range: &ParsedRange) -> Result<RangeCheck, InputError> {
+    if range.spanned > REFUSED_ABOVE {
+        return Err(InputError::new(format!(
+            "{} addresses is more than LAN Scan will sweep (65,536, a /16); narrow the range",
+            with_thousands(range.spanned)
+        )));
+    }
+    Ok(RangeCheck {
+        addresses: (range.last - range.first) as usize + 1,
+        needs_confirmation: range.spanned > FREE_LIMIT,
+    })
 }
 
 fn parse_range(text: &str) -> Result<ParsedRange, InputError> {
@@ -141,7 +145,7 @@ fn parse_range(text: &str) -> Result<ParsedRange, InputError> {
                 .ok()
                 .filter(|prefix| *prefix <= 32)
                 .ok_or_else(invalid)?;
-            let mask = u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0);
+            let mask = prefix_mask(prefix);
             let first = u32::from(address(network)?) & mask;
             (first, first | !mask, 1u64 << (32 - prefix), prefix <= 30)
         }
@@ -174,6 +178,11 @@ fn parse_range(text: &str) -> Result<ParsedRange, InputError> {
     })
 }
 
+/// The mask of an IPv4 prefix length: /24 is 255.255.255.0.
+fn prefix_mask(prefix: u8) -> u32 {
+    u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0)
+}
+
 /// A number with thousands separators: 65536 as `65,536`.
 fn with_thousands(number: u64) -> String {
     let digits = number.to_string();
@@ -203,7 +212,7 @@ pub async fn default_range(network: &impl Network) -> Option<String> {
         .clone()
         .find(|(address, _)| !address.is_link_local())
         .or_else(|| addresses.next())?;
-    let mask = u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0);
+    let mask = prefix_mask(prefix);
     Some(format!(
         "{}/{prefix}",
         Ipv4Addr::from(u32::from(address) & mask)
@@ -479,7 +488,7 @@ struct Subnet {
 
 impl Subnet {
     fn new(address: Ipv4Addr, prefix: u8) -> Self {
-        let mask = u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0);
+        let mask = prefix_mask(prefix);
         Self {
             network: u32::from(address) & mask,
             mask,

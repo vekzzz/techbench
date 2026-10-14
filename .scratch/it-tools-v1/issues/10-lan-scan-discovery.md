@@ -40,3 +40,15 @@ My choices:
 - The Result's header has "Range:" instead of "Target:"/"Resolved:", since a range has no Resolved Address.
 
 **Not verified in the running app:** the LAN Scan screen. I did not attempt the GUI check after the problems on tickets 07–09, so the screen-facing criteria are ticked for the core and shell only. Please try the screen once, including a range above 1,024 addresses (e.g. `10.0.0.0/21`) to see the confirm panel.
+
+**2026-10-14 — review follow-up (Claude).** Fixed: one `prefix_mask` helper instead of three copies of the mask expression; `validate` parses the range once.
+
+Accepted or deferred, for you to decide:
+- **`start-end` ranges do not skip network/broadcast addresses**, only CIDR ranges of /30 or wider do. The ticket says "Network and broadcast addresses are skipped" without saying which; `192.168.1.0-192.168.1.255` therefore probes `.0` and `.255`.
+- **`SendARP` may answer from the Windows neighbour cache**, so a host that left very recently can still show as an ARP-only Device for a few minutes.
+- **`SendARP` cannot be cancelled.** After the 1 s timeout its thread is abandoned and finishes on its own; on a /16 of the own subnet that is up to ~64 extra blocking threads per second for a few seconds (tokio's pool allows 512). Fine for a /24; watch it on a /16.
+- **The default range is offered once per app run** (`defaultOffered` in the screen), so it can go stale if the network changes; the Technician edits the field.
+- **A VPN or virtual adapter with a wide prefix counts as "own subnet"** (tunnel-kind adapters are excluded, others are not).
+- The confirm panel states the probed count (a /21: 2,046) while the gate counts the span (2,048).
+- Copy header says "Range:" and omits "Resolved:" (a range has no Resolved Address); the spec's header list names Target and Resolved Address.
+- One full-suite run showed a single failed test in a real-network suite that I could not identify; three following full runs were clean. It was not in the LAN Scan tests as far as I can tell.
