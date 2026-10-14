@@ -8,6 +8,9 @@ import type { ScreenId } from "@/tools";
  * App-level state. Tool state lives here and in the Tools' run stores below, above the Tool
  * screens, so switching Tools in the sidebar never resets or stops anything.
  */
+/** What LAN Scan orders its Devices by. */
+export type DeviceSort = "ip" | "hostname" | "vendor";
+
 type AppState = {
   screen: ScreenId;
   showScreen: (screen: ScreenId) => void;
@@ -24,7 +27,7 @@ type AppState = {
   showNotice: (notice: string | null) => void;
 
   /** How LAN Scan lists its Devices. */
-  lanScanView: { sort: "ip" | "hostname" | "vendor"; filter: string };
+  lanScanView: { sort: DeviceSort; filter: string };
   updateLanScanView: (patch: Partial<AppState["lanScanView"]>) => void;
 
   subnetCalculator: { input: string; check: string };

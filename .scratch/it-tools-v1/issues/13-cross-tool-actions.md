@@ -26,3 +26,8 @@ Spec: user stories 24, 25; Implementation Decisions › UI.
 - **Save as Target** opens the Saved Targets screen with the form filled in (address, and the hostname as label when known) for the Technician to confirm.
 
 **Not verified in the running app:** none of these actions has been clicked through. Please try one of each, and the three-running notice.
+
+**2026-10-14 — review follow-up (Claude).** Not changed, for you to decide:
+- **Continuous Ping reuses a slot whose Run has ended**, or one with a typed but unstarted Target, if no slot is empty; only running slots are protected. That follows "when fewer than three are running".
+- **Port Check from an action** shows its "enter at least one port" message when no ports are typed, as the ticket says ("as if the Technician had typed the address and started it").
+- The names `followLead` and `LeadAction` are not in CONTEXT.md; they are code-level only, and the screens say "Actions".

@@ -25,16 +25,19 @@ export function TargetInput({
   onChange,
   family,
   onFamilyChange,
+  placeholder = "Hostname or IP address",
   autoFocus = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
-  family: AddressFamily;
-  onFamilyChange: (family: AddressFamily) => void;
+  /** Leave out both for a Tool with no IP version to force, such as DNS Lookup. */
+  family?: AddressFamily;
+  onFamilyChange?: (family: AddressFamily) => void;
+  placeholder?: string;
   autoFocus?: boolean;
 }) {
-  const { targets, loaded, load, create } = useSavedTargets();
+  const { targets, error, loaded, load, create } = useSavedTargets();
   const [saving, setSaving] = useState(false);
   const [label, setLabel] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -47,6 +50,7 @@ export function TargetInput({
     try {
       await create({ label, address: value, note: "" });
       setSaving(false);
+      setLabel("");
       setSaveError(null);
     } catch (reason) {
       setSaveError(String(reason));
@@ -62,7 +66,7 @@ export function TargetInput({
           spellCheck={false}
           autoComplete="off"
           className="font-mono"
-          placeholder="Hostname or IP address"
+          placeholder={placeholder}
           value={value}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -73,7 +77,9 @@ export function TargetInput({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-72 overflow-auto">
-            {targets.length === 0 ? (
+            {error ? (
+              <DropdownMenuLabel className="max-w-80 font-normal whitespace-normal text-destructive">{error}</DropdownMenuLabel>
+            ) : targets.length === 0 ? (
               <DropdownMenuLabel className="font-normal text-muted-foreground">No Saved Targets yet</DropdownMenuLabel>
             ) : (
               targets.map((saved) => (
@@ -98,21 +104,23 @@ export function TargetInput({
         >
           Save
         </Button>
-        <div role="radiogroup" aria-label="IP version" className="flex shrink-0 rounded-md border p-0.5">
-          {FAMILIES.map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              size="xs"
-              role="radio"
-              aria-checked={family === option.value}
-              variant={family === option.value ? "secondary" : "ghost"}
-              onClick={() => onFamilyChange(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
+        {family !== undefined && onFamilyChange && (
+          <div role="radiogroup" aria-label="IP version" className="flex shrink-0 rounded-md border p-0.5">
+            {FAMILIES.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                size="xs"
+                role="radio"
+                aria-checked={family === option.value}
+                variant={family === option.value ? "secondary" : "ghost"}
+                onClick={() => onFamilyChange(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
       {saving && (
         <div className="flex flex-col gap-1">

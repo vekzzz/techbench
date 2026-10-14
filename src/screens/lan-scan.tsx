@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { milliseconds } from "@/lib/format";
 import { defaultLanRange, lanRangeInfo, type DeviceInfo } from "@/lib/toolbox";
-import { useAppStore, useLanScan, type LanScanRun } from "@/store";
+import { useAppStore, useLanScan, type DeviceSort, type LanScanRun } from "@/store";
 
 /** Whether the default range has been offered yet: it is offered once, so clearing the field sticks. */
 let defaultOffered = false;
@@ -125,7 +125,7 @@ const SORTS = [
 ] as const;
 
 /** Devices matching the filter text (in any of IP, hostname, MAC or vendor), in the chosen order. Devices without the sorted-by detail come last. */
-function visibleDevices(devices: DeviceInfo[], sort: "ip" | "hostname" | "vendor", filter: string) {
+function visibleDevices(devices: DeviceInfo[], sort: DeviceSort, filter: string) {
   const needle = filter.trim().toLowerCase();
   const shown = devices.filter(
     (device) =>

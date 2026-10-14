@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CopyResult } from "@/components/copy-result";
+import { TargetInput } from "@/components/target-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,15 +46,12 @@ export function DnsLookup() {
       >
         <div className="flex flex-col gap-2">
           <Label htmlFor="dns-query">Name or IP address</Label>
-          <Input
+          <TargetInput
             id="dns-query"
             autoFocus
-            spellCheck={false}
-            autoComplete="off"
-            className="font-mono"
             placeholder="example.com   or   8.8.8.8 for its name"
             value={input.query}
-            onChange={(event) => update({ query: event.target.value })}
+            onChange={(query) => update({ query })}
           />
         </div>
 

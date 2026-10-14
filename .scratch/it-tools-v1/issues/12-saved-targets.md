@@ -31,3 +31,10 @@ My choices:
 - Ids are the highest stored id plus one, so an id can be reused after the newest Saved Target is deleted and the app restarted. Nothing refers to ids outside the screen.
 
 **Not verified in the running app:** the Saved Targets screen, the Target input's picker and save, and the file dialogs. The app starts with the dialog plugin and the store setup in place.
+
+**2026-10-14 — review follow-up (Claude).** Fixed:
+- **DNS Lookup's field now has the Saved picker and Save button.** It was a plain input, so "every Tool that takes a Target" was not met. `TargetInput` takes an optional placeholder and optional IP version toggle; DNS Lookup uses it without the toggle.
+- **The Save form's label is cleared after a save** (the next Save opened with the old label).
+- **A damaged store file now shows its message in the Saved picker**, not only on the Saved Targets screen; it used to read "No Saved Targets yet".
+
+Deferred: a hand-edited store file with repeated ids is not checked, so Delete would remove every entry with that id; a malformed entry that fails JSON parsing is reported without naming the entry (only entries that parse but are invalid are named); Export writes straight to the chosen file rather than through a temporary file.

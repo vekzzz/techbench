@@ -33,3 +33,7 @@ My choices:
 **Not verified in the running app:** the sort and filter controls and the late hostnames on screen (hence the unticked criterion). The app does start and open its window.
 
 **Installer:** `npm run package` built `IT Tools_0.1.0_x64-setup.exe` (2.44 MiB, up from 1.71 MiB); the release `it-tools.exe` contains the vendor table. I did not run the new installer.
+
+**2026-10-14 — review follow-up (Claude).** The sort type is now one `DeviceSort` type shared by the store and the screen.
+
+Deferred: a timed-out reverse lookup frees its slot, but the Windows name lookup behind it keeps its thread until it finishes, so with a dead DNS server more than 16 can be waiting at once (same shape as the `SendARP` note on ticket 10). The filter also matches MAC, which the ticket did not ask for.
