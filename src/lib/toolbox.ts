@@ -172,6 +172,8 @@ export type PingStatistics = {
   sent: number;
   received: number;
   lossPercent: number;
+  /** A whole percent, or "<1" when some echoes were lost but fewer than 1%. */
+  lossLabel: string;
   minMs: number | null;
   avgMs: number | null;
   maxMs: number | null;

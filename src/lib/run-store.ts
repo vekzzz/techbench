@@ -20,6 +20,8 @@ export type RunStore<Input, Run> = {
   update: (patch: Partial<Input>) => void;
   start: () => Promise<void>;
   stop: () => void;
+  /** Stops the Run and returns the store to its starting input with no Run. */
+  clear: () => void;
 };
 
 /**
@@ -63,6 +65,10 @@ export function createRunStore<Input, Run extends FollowedRun, Update, Started e
         }
       },
       stop: () => stopIfRunning(get().run),
+      clear: () => {
+        stopIfRunning(get().run);
+        set({ input: tool.input, error: null, run: null });
+      },
     };
   });
 }

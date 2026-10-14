@@ -9,7 +9,7 @@ use chrono::{DateTime, FixedOffset};
 use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
-use crate::network::{EchoOutcome, EchoRequest, Network};
+use crate::network::{EchoOutcome, Network};
 use crate::ping::{self, DEFAULT_PAYLOAD_SIZE, DEFAULT_TIMEOUT, INTERVAL};
 use crate::run::{self, Opening, Progress, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
@@ -49,7 +49,7 @@ pub struct PingStatistics {
 }
 
 impl PingStatistics {
-    fn record(&mut self, outcome: EchoOutcome) {
+    pub(crate) fn record(&mut self, outcome: EchoOutcome) {
         self.sent += 1;
         let EchoOutcome::Reply { round_trip, .. } = outcome else {
             return;
@@ -64,6 +64,38 @@ impl PingStatistics {
             self.jitter_samples += 1;
         }
         self.last_round_trip = Some(round_trip);
+    }
+
+    /// The totals as one line: "4 sent, 3 received, 25% loss; round trip min 3 ms, avg 4 ms, max 5 ms;
+    /// jitter 1 ms", leaving out what there is no data for.
+    pub(crate) fn describe(&self, with_jitter: bool) -> String {
+        let mut line = format!(
+            "{} sent, {} received, {}% loss",
+            self.sent,
+            self.received,
+            self.loss_label()
+        );
+        if let (Some(min), Some(average), Some(max)) = (self.min, self.average(), self.max) {
+            line.push_str(&format!(
+                "; round trip min {}, avg {}, max {}",
+                milliseconds(min),
+                milliseconds(average),
+                milliseconds(max)
+            ));
+        }
+        if let Some(jitter) = self.jitter().filter(|_| with_jitter) {
+            line.push_str(&format!("; jitter {}", milliseconds(jitter)));
+        }
+        line
+    }
+
+    /// The loss as the Result words it: a whole percent, or "<1" when some echoes were lost
+    /// but not enough to round up to 1%.
+    pub fn loss_label(&self) -> String {
+        match self.loss_percent() {
+            0 if self.received < self.sent => "<1".to_string(),
+            percent => percent.to_string(),
+        }
     }
 
     /// The share of echoes that got no reply, rounded to a whole percent.
@@ -86,6 +118,10 @@ impl PingStatistics {
         (self.jitter_samples > 0).then(|| self.total_jitter / self.jitter_samples)
     }
 }
+
+/// How many lost runs are kept: enough to read a pattern, bounded so a flapping link cannot
+/// grow a Run without limit. Older ones are only counted.
+const KEPT_LOST_RUNS: usize = 200;
 
 /// Consecutive echoes that got no reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,8 +148,10 @@ pub enum ContinuousPingEvent {
 pub struct ContinuousPingResult {
     pub header: RunHeader,
     pub statistics: PingStatistics,
-    /// Every run of lost echoes, oldest first.
+    /// The latest runs of lost echoes, oldest first.
     pub lost: Vec<LostEchoes>,
+    /// How many earlier runs of lost echoes were dropped from `lost` to bound memory.
+    pub older_lost_runs: u64,
     /// How long echoes have been going out, as of the last update.
     pub running_for: Duration,
     pub ending: RunEnding,
@@ -125,6 +163,7 @@ impl ContinuousPingResult {
             header,
             statistics: PingStatistics::default(),
             lost: vec![],
+            older_lost_runs: 0,
             running_for: Duration::ZERO,
             ending,
         }
@@ -137,11 +176,17 @@ impl ContinuousPingResult {
         }
         match self.lost.last_mut() {
             Some(lost) if lost.last + 1 == sequence => lost.last = sequence,
-            _ => self.lost.push(LostEchoes {
-                first: sequence,
-                last: sequence,
-                started_at: sent_at,
-            }),
+            _ => {
+                if self.lost.len() == KEPT_LOST_RUNS {
+                    self.lost.remove(0);
+                    self.older_lost_runs += 1;
+                }
+                self.lost.push(LostEchoes {
+                    first: sequence,
+                    last: sequence,
+                    started_at: sent_at,
+                });
+            }
         }
     }
 
@@ -158,6 +203,12 @@ impl ContinuousPingResult {
                 text.push_str("No echoes were lost.\n");
             } else {
                 text.push_str(&self.lost_table());
+                if self.older_lost_runs > 0 {
+                    text.push_str(&format!(
+                        "... and {} earlier lost runs not listed\n",
+                        self.older_lost_runs
+                    ));
+                }
             }
             text.push('\n');
         }
@@ -180,29 +231,9 @@ impl ContinuousPingResult {
                 return "Stopped before the first echo finished.".to_string();
             }
             RunEnding::Running => format!("Running for {span}"),
-            _ => format!("Stopped after {span}"),
+            RunEnding::Stopped | RunEnding::Completed => format!("Stopped after {span}"),
         };
-        let statistics = &self.statistics;
-        let mut summary = format!(
-            "{lead}: {} sent, {} received, {}% loss",
-            statistics.sent,
-            statistics.received,
-            statistics.loss_percent()
-        );
-        if let (Some(min), Some(average), Some(max)) =
-            (statistics.min, statistics.average(), statistics.max)
-        {
-            summary.push_str(&format!(
-                "; round trip min {}, avg {}, max {}",
-                milliseconds(min),
-                milliseconds(average),
-                milliseconds(max)
-            ));
-        }
-        if let Some(jitter) = statistics.jitter() {
-            summary.push_str(&format!("; jitter {}", milliseconds(jitter)));
-        }
-        summary
+        format!("{lead}: {}", self.statistics.describe(true))
     }
 
     fn lost_table(&self) -> String {
@@ -266,15 +297,9 @@ pub async fn run_with_progress(
     on_event(ContinuousPingEvent::Resolved(resolved));
 
     let opened = tokio::time::Instant::now();
-    let request = EchoRequest {
-        address: resolved,
-        payload_size: DEFAULT_PAYLOAD_SIZE,
-        dont_fragment: false,
-        timeout: DEFAULT_TIMEOUT,
-    };
     let ending = ping::send_paced(
         network,
-        request,
+        ping::default_echo_to(resolved),
         None,
         stop,
         |sequence, sent_at, outcome| {

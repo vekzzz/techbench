@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::InputError;
+use crate::continuous_ping::PingStatistics;
 use crate::network::{EchoOutcome, EchoRequest, Network};
 use crate::run::{self, Opening, Progress, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
@@ -112,6 +113,17 @@ fn number_in(text: &str, min: u32, max: u32, explanation: &str) -> Result<u32, I
         .ok_or_else(|| InputError::new(explanation))
 }
 
+/// The echo request Continuous Ping sends: the same defaults as a Ping the Technician left alone.
+pub(crate) fn default_echo_to(address: IpAddr) -> EchoRequest {
+    EchoSettings {
+        count: 1,
+        payload_size: DEFAULT_PAYLOAD_SIZE,
+        timeout: DEFAULT_TIMEOUT,
+        dont_fragment: false,
+    }
+    .echo_to(address)
+}
+
 impl EchoSettings {
     /// The echo request these settings make for `address`. Don't Fragment applies to IPv4 only:
     /// Windows cannot forbid an IPv6 echo from being fragmented at its source.
@@ -179,49 +191,26 @@ impl PingResult {
         if let RunEnding::ResolutionFailed { reason } = &self.ending {
             return format!("Could not resolve {}: {reason}", self.header.target);
         }
-        let sent = self.echoes.len();
-        let round_trips: Vec<Duration> = self
-            .echoes
-            .iter()
-            .filter_map(|echo| match echo.outcome {
-                EchoOutcome::Reply { round_trip, .. } => Some(round_trip),
-                _ => None,
-            })
-            .collect();
+        let mut statistics = PingStatistics::default();
+        for echo in &self.echoes {
+            statistics.record(echo.outcome);
+        }
+        let sent = statistics.sent;
         if sent == 0 {
             return match self.ending {
                 RunEnding::Running => "Still running: no echo has finished yet.".to_string(),
-                _ => "Stopped before the first echo finished.".to_string(),
+                RunEnding::Stopped | RunEnding::Completed | RunEnding::ResolutionFailed { .. } => {
+                    "Stopped before the first echo finished.".to_string()
+                }
             };
         }
-        let received = round_trips.len();
-        let lost_percent = ((sent - received) * 100 + sent / 2) / sent;
-        let mut summary = format!("{sent} sent, {received} received, {lost_percent}% loss");
-        match self.ending {
-            RunEnding::Stopped => {
-                summary = format!(
-                    "Stopped after {sent} of {} echoes: {summary}",
-                    self.settings.count
-                );
-            }
-            RunEnding::Running => {
-                summary = format!(
-                    "Still running: {sent} of {} echoes so far: {summary}",
-                    self.settings.count
-                );
-            }
-            _ => {}
-        }
-        if let (Some(min), Some(max)) = (round_trips.iter().min(), round_trips.iter().max()) {
-            let average = round_trips.iter().sum::<Duration>() / received as u32;
-            summary.push_str(&format!(
-                "; round trip min {}, avg {}, max {}",
-                milliseconds(*min),
-                milliseconds(average),
-                milliseconds(*max),
-            ));
-        }
-        summary
+        let count = self.settings.count;
+        let lead = match self.ending {
+            RunEnding::Stopped => format!("Stopped after {sent} of {count} echoes: "),
+            RunEnding::Running => format!("Still running: {sent} of {count} echoes so far: "),
+            RunEnding::Completed | RunEnding::ResolutionFailed { .. } => String::new(),
+        };
+        format!("{lead}{}", statistics.describe(false))
     }
 
     fn echo_table(&self) -> String {

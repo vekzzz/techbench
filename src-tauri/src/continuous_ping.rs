@@ -29,6 +29,8 @@ pub struct StatisticsView {
     sent: u64,
     received: u64,
     loss_percent: u64,
+    /// The loss as the core words it: a whole percent, or "<1".
+    loss_label: String,
     min_ms: Option<f64>,
     avg_ms: Option<f64>,
     max_ms: Option<f64>,
@@ -42,6 +44,7 @@ impl From<PingStatistics> for StatisticsView {
             sent: statistics.sent,
             received: statistics.received,
             loss_percent: statistics.loss_percent(),
+            loss_label: statistics.loss_label(),
             min_ms: ms(statistics.min),
             avg_ms: ms(statistics.average()),
             max_ms: ms(statistics.max),

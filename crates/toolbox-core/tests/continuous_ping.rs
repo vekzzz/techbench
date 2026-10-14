@@ -194,3 +194,50 @@ async fn a_hostname_that_does_not_resolve_ends_the_run_as_a_resolution_failure()
         "Could not resolve nosuchhost.corp.local: No such host is known."
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_flapping_link_keeps_only_the_latest_lost_runs_and_counts_the_older_ones() {
+    // Alternating lost and answered echoes: every second echo starts a new lost run.
+    let echoes = (0..600).flat_map(|_| [EchoScript::Silent, reply(3)]);
+    let network = FakeNetwork::new().with_echoes("10.0.0.5", echoes.chain([EchoScript::Hang]));
+
+    let result = run_for(&network, "10.0.0.5", 1_199_500).await;
+
+    assert_eq!(
+        (
+            result.lost.len(),
+            result.older_lost_runs,
+            result.statistics.sent - result.statistics.received
+        ),
+        (200, 200, 400)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_text_says_how_many_older_lost_runs_were_left_out() {
+    let echoes = (0..300).flat_map(|_| [EchoScript::Silent, reply(3)]);
+    let network = FakeNetwork::new().with_echoes("10.0.0.5", echoes.chain([EchoScript::Hang]));
+
+    let text = run_for(&network, "10.0.0.5", 899_500).await.to_text();
+
+    assert!(
+        text.contains("\n... and 100 earlier lost runs not listed\n"),
+        "{text}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_loss_that_rounds_to_zero_percent_still_shows_as_under_one_percent() {
+    let echoes = std::iter::once(EchoScript::Silent).chain((0..999).map(|_| reply(3)));
+    let network = FakeNetwork::new().with_echoes("10.0.0.5", echoes.chain([EchoScript::Hang]));
+
+    let result = run_for(&network, "10.0.0.5", 1_001_500).await;
+
+    assert!(
+        result
+            .summary()
+            .contains("1000 sent, 999 received, <1% loss"),
+        "{}",
+        result.summary()
+    );
+}

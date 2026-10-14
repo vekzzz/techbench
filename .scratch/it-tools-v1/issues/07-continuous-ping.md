@@ -36,3 +36,19 @@ Continuous Ping:
 - **Ping screen:** Once / Continuous toggle; Continuous has up to three Target slots, each its own Run and store, with Start all / Stop all, Add Target, Use default gateway, totals and an SVG graph (last 60 echoes, lost echoes as red bars).
 
 Verified: all tests; `Use default gateway` filled 192.168.1.1 in the running app. **Not verified visually**: the live graph, three slots running together, switching Tools mid-Run, and Copy while running in the UI. The GUI check was abandoned: my automation sent keystrokes to the wrong window and corrupted `toolbox.ts` (fixed; tsc clean). Those four boxes stay unticked for a manual look.
+
+**2026-10-14 — review follow-up (Claude).** Fixed:
+- **"Constant memory" was not true:** a flapping link grew the lost-runs list by one entry per episode. The core now keeps the latest 200 runs and counts the older ones (`older_lost_runs`); Copy as text says "... and N earlier lost runs not listed".
+- **Loss of 1 echo in 1,000 showed "0% loss".** It now shows "<1%" (`loss_label()`, sent to the UI as `lossLabel`); the Loss figure turns red whenever any echo was lost.
+- **Remove left the slot's old Target and graph behind;** it now clears the slot (`clear()` on the run store). **Start all no longer restarts slots that are already running** (which silently reset their totals).
+- **`Runs::text` no longer holds the Runs lock while formatting.**
+- **Duplication:** Ping's summary now reuses `PingStatistics::describe`; the default echo request lives in `ping::default_echo_to`; `RunEnding` matches list every arm instead of wildcards. Graph label says "latest echoes".
+
+Accepted or deferred:
+- Continuous Ping uses the fixed Ping defaults (1 s, 2000 ms, 32 bytes), not the values set in Once mode.
+- The three-slot cap lives in the store, the screen and the array of stores.
+- "Use default gateway" can overwrite the Target text of a slot whose Run is going (the Run itself is unaffected).
+- The graph marks every non-reply (timed out, unreachable, fragmentation needed) as lost.
+- The totals labels and red highlight are worded in the UI; the summary line comes from the core.
+- Copy in the instant between a Run opening and finishing can say "Nothing to copy yet".
+- The mid-Run test in `port_check.rs` relies on one `yield_now()`; a paused-clock version would be sturdier.

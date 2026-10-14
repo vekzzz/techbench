@@ -14,7 +14,13 @@ export function ContinuousPing() {
   const slots = continuousPingSlots.slice(0, shown);
   const [gatewayNote, setGatewayNote] = useState<string | null>(null);
 
-  const startAll = () => slots.forEach((slot) => slot.getState().input.target.trim() && void slot.getState().start());
+  const startAll = () => {
+    for (const slot of slots) {
+      const { input, run, start } = slot.getState();
+      const running = run !== null && run.result === null;
+      if (input.target.trim() && !running) void start();
+    }
+  };
   const stopAll = () => slots.forEach((slot) => slot.getState().stop());
 
   /** Puts the default gateway in the first empty Target slot, adding a slot if every shown one is in use. */
@@ -56,7 +62,7 @@ export function ContinuousPing() {
           index={index}
           removable={shown > 1 && index === shown - 1}
           onRemove={() => {
-            continuousPingSlots[index].getState().stop();
+            continuousPingSlots[index].getState().clear();
             setShown(shown - 1);
           }}
         />
@@ -124,7 +130,7 @@ function Totals({ statistics }: { statistics: PingStatistics }) {
   const totals: [string, string][] = [
     ["Sent", String(statistics.sent)],
     ["Received", String(statistics.received)],
-    ["Loss", `${statistics.lossPercent}%`],
+    ["Loss", `${statistics.lossLabel}%`],
     ["Min", milliseconds(statistics.minMs)],
     ["Avg", milliseconds(statistics.avgMs)],
     ["Max", milliseconds(statistics.maxMs)],
@@ -135,7 +141,7 @@ function Totals({ statistics }: { statistics: PingStatistics }) {
       {totals.map(([label, value]) => (
         <div key={label} className="flex gap-1.5">
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className={label === "Loss" && statistics.lossPercent > 0 ? "font-mono text-destructive" : "font-mono"}>
+          <dd className={label === "Loss" && statistics.received < statistics.sent ? "font-mono text-destructive" : "font-mono"}>
             {value}
           </dd>
         </div>
@@ -144,7 +150,7 @@ function Totals({ statistics }: { statistics: PingStatistics }) {
   );
 }
 
-/** The last minute of round trips as a line; lost echoes are red bars, so drops stand out from slow replies. */
+/** The latest round trips as a line; lost echoes are red bars, so drops stand out from slow replies. */
 function LatencyGraph({ points }: { points: ContinuousPingRun["points"] }) {
   const width = 600;
   const height = 80;
@@ -165,7 +171,7 @@ function LatencyGraph({ points }: { points: ContinuousPingRun["points"] }) {
         preserveAspectRatio="none"
         className="h-20 w-full rounded border bg-muted/20"
         role="img"
-        aria-label="Round trip over the last minute"
+        aria-label="Round trip of the latest echoes"
       >
         {points.map((point, index) =>
           point.roundTripMs === null ? (

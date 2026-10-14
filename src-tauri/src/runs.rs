@@ -12,7 +12,7 @@ use toolbox_core::target::AddressFamily;
 pub type RunId = u64;
 
 /// Produces a Run's Copy as text from its Result so far; None before it has one.
-type TextSoFar = Box<dyn Fn() -> Option<String> + Send + Sync>;
+type TextSoFar = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 struct InProgress {
     stop: CancellationToken,
@@ -48,7 +48,7 @@ impl Runs {
         F: Future<Output = ()> + Send + 'static,
     {
         let progress = progress.clone();
-        self.spawn_with(Some(Box::new(move || progress.read(to_text))), work)
+        self.spawn_with(Some(Arc::new(move || progress.read(to_text))), work)
     }
 
     fn spawn_with<F>(
@@ -84,8 +84,9 @@ impl Runs {
     }
 
     fn text(&self, id: RunId) -> Option<String> {
-        let runs = self.in_progress.lock().unwrap();
-        runs.get(&id)?.text.as_ref()?()
+        // Take the reader out first: formatting must not hold up starting or stopping Runs.
+        let text = self.in_progress.lock().unwrap().get(&id)?.text.clone()?;
+        text()
     }
 }
 
