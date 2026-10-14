@@ -63,6 +63,9 @@ pub struct FakeNetwork {
     /// Unscripted echoes time out like a silent Target instead of failing the test.
     silent_unless_scripted: bool,
     arp_answers: HashMap<Ipv4Addr, [u8; 6]>,
+    /// What this PC's neighbour (ARP) cache holds, by address.
+    cached_macs: HashMap<Ipv4Addr, [u8; 6]>,
+    cache_reads: Mutex<Vec<Ipv4Addr>>,
     arp_requests: Mutex<Vec<Ipv4Addr>>,
     /// Echo scripts for requests that carry a TTL, by address and TTL.
     hops: Mutex<HashMap<(IpAddr, u8), VecDeque<EchoScript>>>,
@@ -85,6 +88,8 @@ impl FakeNetwork {
             echo_requests: Mutex::new(Vec::new()),
             silent_unless_scripted: false,
             arp_answers: HashMap::new(),
+            cached_macs: HashMap::new(),
+            cache_reads: Mutex::new(Vec::new()),
             arp_requests: Mutex::new(Vec::new()),
             hops: Mutex::new(HashMap::new()),
             reverse_names: HashMap::new(),
@@ -135,10 +140,23 @@ impl FakeNetwork {
         self
     }
 
-    /// The device at `address` answers ARP with `mac`; any other address does not answer.
+    /// The device at `address` answers ARP with `mac`, so it also lands in the neighbour cache once
+    /// Windows has resolved it to send an echo; any other address does not answer.
     pub fn with_arp(mut self, address: &str, mac: [u8; 6]) -> Self {
         self.arp_answers.insert(address.parse().unwrap(), mac);
         self
+    }
+
+    /// This PC's neighbour (ARP) cache holds `mac` for `address`, whether or not the device
+    /// answers ARP now.
+    pub fn with_cached_mac(mut self, address: &str, mac: [u8; 6]) -> Self {
+        self.cached_macs.insert(address.parse().unwrap(), mac);
+        self
+    }
+
+    /// Every address whose MAC was read from the neighbour cache, in order.
+    pub fn cache_reads(&self) -> Vec<Ipv4Addr> {
+        self.cache_reads.lock().unwrap().clone()
     }
 
     /// Every address an ARP request was sent for, in order.
@@ -352,6 +370,14 @@ impl Network for FakeNetwork {
     async fn arp_resolve(&self, address: Ipv4Addr, _timeout: Duration) -> Option<[u8; 6]> {
         self.arp_requests.lock().unwrap().push(address);
         self.arp_answers.get(&address).copied()
+    }
+
+    async fn cached_mac(&self, address: Ipv4Addr) -> Option<[u8; 6]> {
+        self.cache_reads.lock().unwrap().push(address);
+        self.cached_macs
+            .get(&address)
+            .or_else(|| self.arp_answers.get(&address))
+            .copied()
     }
 
     async fn adapters(&self) -> Vec<Adapter> {

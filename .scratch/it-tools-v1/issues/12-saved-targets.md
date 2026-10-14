@@ -9,10 +9,10 @@ Spec: user stories 17–23; Implementation Decisions › Toolbox core (Saved Tar
 **Status:** ready-for-agent
 **Category:** enhancement
 
-- [ ] From the Saved Targets screen the Technician can create a Saved Target (label, address, optional note), edit it and delete it.
+- [x] From the Saved Targets screen the Technician can create a Saved Target (label, address, optional note), edit it and delete it.
 - [x] Saved Targets persist between launches in the app's data folder.
-- [ ] The shared Target input offers Saved Targets in every Tool that takes a Target.
-- [ ] A typed Target can be saved as a Saved Target from the Target input.
+- [x] The shared Target input offers Saved Targets in every Tool that takes a Target.
+- [x] A typed Target can be saved as a Saved Target from the Target input.
 - [x] Export writes a JSON file with a format version; import adds entries and skips any whose label and address both match an existing Saved Target.
 - [x] A malformed import file is rejected with a clear message and leaves the existing list untouched.
 - [x] Core tests using a temporary folder cover create/read/update/delete, persistence across store instances, the export/import round trip, the duplicate-skip rule, and malformed import.
@@ -38,3 +38,10 @@ My choices:
 - **A damaged store file now shows its message in the Saved picker**, not only on the Saved Targets screen; it used to read "No Saved Targets yet".
 
 Deferred: a hand-edited store file with repeated ids is not checked, so Delete would remove every entry with that id; a malformed entry that fails JSON parsing is reported without naming the entry (only entries that parse but are invalid are named); Export writes straight to the chosen file rather than through a temporary file.
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- Saved Targets screen: created "ZZ test gateway" 192.168.1.1 with a note; "not an address!" was refused ("not an address! is not a valid hostname or IP address") and nothing was added; Edit relabelled it "ZZ test router" ("Save changes"); Delete removed each entry, back to "No Saved Targets yet". `saved-targets.json` in `%APPDATA%\com.venuel.ittools` followed every change. (I removed the file afterwards; none existed before the check.)
+- The Saved picker listed the Saved Target and filled the field in Ping, Continuous Ping, Traceroute, Port Check and DNS Lookup.
+- From Port Check's field, `8.8.8.8` → Save → label "ZZ google dns" → Enter stored it without starting the Port Check, and it appeared in the picker and on the screen.
+
+Not checked: the Export and Import file dialogs (native windows). The commands behind them are covered by the core tests.

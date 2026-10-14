@@ -5,8 +5,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
+use toolbox_core::ip_info;
 use toolbox_core::lan_scan::{self, Device, LanScanRequest, LanScanResult};
-use toolbox_core::network::{Network, SystemNetwork};
+use toolbox_core::network::{EchoRequest, Network, SystemNetwork};
 use toolbox_core::run::RunEnding;
 
 async fn scan(range: &str) -> LanScanResult {
@@ -93,4 +94,30 @@ async fn arp_for_an_address_nothing_holds_gives_up_within_the_timeout() {
     let _ = SystemNetwork.arp_resolve(neighbour, timeout).await;
 
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn after_pinging_the_gateway_its_mac_is_read_from_the_neighbour_cache() {
+    let Some(IpAddr::V4(gateway)) = ip_info::default_gateway(&SystemNetwork).await else {
+        return; // No IPv4 gateway on this PC: nothing to look up.
+    };
+    // Sending to the gateway makes Windows resolve, and cache, its MAC.
+    SystemNetwork
+        .icmp_echo(EchoRequest {
+            address: gateway.into(),
+            payload_size: 32,
+            dont_fragment: false,
+            ttl: None,
+            timeout: Duration::from_secs(1),
+        })
+        .await;
+
+    let started = std::time::Instant::now();
+    let mac = SystemNetwork.cached_mac(gateway).await;
+
+    assert!(mac.is_some(), "no cached MAC for {gateway}");
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "the cache read sent traffic"
+    );
 }

@@ -11,10 +11,10 @@ Spec: user stories 39–44; Implementation Decisions › Network adapter, Per-To
 
 - [x] Traceroute sends ICMP echo with TTL increasing from 1, 3 probes per Hop, 1 s timeout per probe, up to 30 Hops.
 - [x] It stops as soon as the Resolved Address replies.
-- [ ] Each Hop row appears as discovered with its number, address and three round-trip times; silent probes show `*`.
+- [x] Each Hop row appears as discovered with its number, address and three round-trip times; silent probes show `*`.
 - [x] Hop hostnames arrive as later events and never delay discovery of the next Hop.
 - [x] Traceroute works over IPv4 and IPv6.
-- [ ] A trace can be stopped mid-way, and a stopped or running trace can be copied.
+- [x] A trace can be stopped mid-way, and a stopped or running trace can be copied.
 - [x] Core tests with the fake adapter cover Hop assembly, `*` for silent probes, stopping at the Target, the 30-Hop limit, late hostnames, and golden Copy as text.
 - [x] A smoke test traces `127.0.0.1` with the real adapter and gets one Hop.
 
@@ -54,3 +54,7 @@ Accepted or deferred:
 - Probes of a Hop go out together, so a router that rate-limits ICMP may show a few more `*` than sequential probing would.
 - Ending on a router's "destination unreachable", the 2 s name timeout, and waiting up to 2 s at the end for the last names are additions beyond the ticket.
 - IPv6 routers (time exceeded over ICMPv6) rest on the Windows API's documented behaviour; only IPv6 loopback was exercised for real.
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- To 192.0.2.1 (never reached): 3 rows after 1.5 s, 6 after 4 s, 9 after 7 s; hop 1 the gateway, hop 2 with its hostname filled in, later Hops `*` in every probe column.
+- Copy while running ended "Still running: 9 hops found so far". Stop ended it at "Stopped after 17 hops", no rows arrived afterwards, and Copy gave the stopped Result.

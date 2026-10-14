@@ -26,3 +26,6 @@ Spec: user stories 5, 9; Implementation Decisions › Shape of the application.
 Not verified: a truly clean Windows 11 PC, because this dev PC already has WebView2.
 
 **2026-10-13 — review follow-up (Claude).** I dropped `startMenuFolder`: setting it added a Start-menu wizard page, which offered "Do not create shortcuts". I also dropped `category`, which does nothing for NSIS. After rebuilding, I reran the silent install, launch and uninstall checks; all passed. The interactive wizard itself has not been clicked through yet.
+
+**2026-10-14 — still open (Claude).** "Runs on a clean Windows 11 PC" can't be checked from this machine: it already has WebView2, and Windows 11 Home has no Windows Sandbox to give a clean one. Needed: a PC or VM without WebView2. Run the installer from `npm run package` (now 2.44 MiB), then confirm it fetches WebView2, adds the Start menu entry, and opens the app.
+

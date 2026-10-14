@@ -43,8 +43,9 @@ export function LanScan() {
     void start();
   };
 
+  // Wider than the other Tools: a Device row has seven columns.
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex max-w-5xl flex-col gap-6">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -222,11 +223,11 @@ function DeviceTable({ devices }: { devices: DeviceInfo[] }) {
       <tbody>
         {devices.map((device) => (
           <tr key={device.address} className="border-t">
-            <td className="px-3 py-1.5 font-mono">{device.address}</td>
+            <td className="px-3 py-1.5 font-mono whitespace-nowrap">{device.address}</td>
             <td className="px-3 py-1.5 text-muted-foreground">{device.hostname ?? "-"}</td>
-            <td className="px-3 py-1.5 font-mono">{device.mac ?? "-"}</td>
+            <td className="px-3 py-1.5 font-mono whitespace-nowrap">{device.mac ?? "-"}</td>
             <td className="px-3 py-1.5 text-muted-foreground">{device.vendor ?? "-"}</td>
-            <td className="px-3 py-1.5 font-mono">{milliseconds(device.responseMs)}</td>
+            <td className="px-3 py-1.5 font-mono whitespace-nowrap">{milliseconds(device.responseMs)}</td>
             <td className="px-3 py-1.5">
               {device.noPingReply && (
                 <Badge variant="outline" title="It answered ARP but not the ping, typically a PC whose firewall drops echoes.">

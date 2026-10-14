@@ -10,12 +10,12 @@ Spec: user stories 3, 4, 32–38; Implementation Decisions › Per-Tool rules �
 **Category:** enhancement
 
 - [x] Continuous Ping repeats until stopped, using the same interval and timeout as Ping.
-- [ ] One to three Targets run side by side, each as its own Run; a fourth cannot be added.
+- [x] One to three Targets run side by side, each as its own Run; a fourth cannot be added.
 - [x] The default gateway (from the adapter carrying the default route) is offered as a quick Target.
-- [ ] Each Target has a live latency graph with timeouts marked distinctly from slow replies.
+- [x] Each Target has a live latency graph with timeouts marked distinctly from slow replies.
 - [x] Each Target shows running loss percentage, minimum/average/maximum and jitter, where jitter is the mean absolute difference between consecutive successful round-trip times.
-- [ ] Continuous Ping keeps running when the Technician switches Tools.
-- [ ] The Result can be copied while running and after stopping.
+- [x] Continuous Ping keeps running when the Technician switches Tools.
+- [x] The Result can be copied while running and after stopping.
 - [x] Core tests with the fake adapter and controllable clock cover loss, minimum/average/maximum and jitter over scripted replies and timeouts, three concurrent Runs, and golden Copy as text.
 
 ## Comments
@@ -52,3 +52,9 @@ Accepted or deferred:
 - The totals labels and red highlight are worded in the UI; the summary line comes from the core.
 - Copy in the instant between a Run opening and finishing can say "Nothing to copy yet".
 - The mid-Run test in `port_check.rs` relies on one `yield_now()`; a paused-clock version would be sturdier.
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- Three slots (127.0.0.1, 192.0.2.1, 8.8.8.8) ran together; with three shown, Add Target is disabled.
+- Graphs: replies draw a line; 192.0.2.1 (a reserved test address that never answers) drew only red bars and showed Loss 100% in red.
+- On Traceroute for 4 s the Runs kept going (Sent 32 → 36 on return).
+- Copy while running gave "Running for 16s: 17 sent…"; after Stop all, Copy gave the stopped Result with its lost run `#1-#18  13:07:47  18`.

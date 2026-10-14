@@ -9,12 +9,12 @@ Spec: user stories 58–61, 62 (IP, MAC, response time), 65–67; Implementation
 **Status:** ready-for-agent
 **Category:** enhancement
 
-- [ ] The default range is the IPv4 network of the adapter carrying the default route; the range is editable as CIDR or start–end.
+- [x] The default range is the IPv4 network of the adapter carrying the default route; the range is editable as CIDR or start–end.
 - [x] Up to 1,024 addresses runs freely; 1,025 to 65,536 requires confirmation; anything larger is refused with a clear message. Network and broadcast addresses are skipped.
 - [x] 64 addresses are probed concurrently; a /24 completes in a few seconds on a typical LAN.
 - [x] On the Technician's own subnet, ARP and ICMP run together and a Device exists if either answers; elsewhere ICMP only.
 - [x] Each Device shows IP, MAC (own subnet only) and response time; a Device that answered ARP but not ping is flagged "no ping reply".
-- [ ] Devices appear as they are found, with a progress indicator; the scan can be stopped and copied at any point.
+- [x] Devices appear as they are found, with a progress indicator; the scan can be stopped and copied at any point.
 - [x] IPv6 ranges are rejected with an explanation that LAN Scan is IPv4 only.
 - [x] Core tests with the fake adapter cover range parsing, the size policy, own-subnet versus other-subnet probing, the "no ping reply" flag, stopping, and golden Copy as text.
 
@@ -52,3 +52,21 @@ Accepted or deferred, for you to decide:
 - The confirm panel states the probed count (a /21: 2,046) while the gate counts the span (2,048).
 - Copy header says "Range:" and omits "Resolved:" (a range has no Resolved Address); the spec's header list names Target and Resolved Address.
 - One full-suite run showed a single failed test in a real-network suite that I could not identify; three following full runs were clean. It was not in the LAN Scan tests as far as I can tell.
+
+**2026-10-14 — GUI check and fix (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- The range opened as `192.168.1.0/24` (this PC's Wi-Fi network); `192.168.1.1-192.168.1.30` and CIDR both scanned. A /21 brought up "This range has 2,046 addresses… Scan it anyway?"; `fd00::/64` was refused as IPv4 only.
+- On `10.255.255.0/24` (beyond a router, pings only): progress bar 80/254 at 1.6 s, Copy mid-scan "Still scanning: 128 of 254…", Stop → "Stopped after probing 128 of 254 addresses: 0 Devices found".
+
+**Fixed: ARP beside the ping made LAN Scan miss MACs and even Devices.** On the real network, 7 of 19 Devices that answered the ping had no MAC, although Windows' ARP cache held every one. Measured on this PC:
+- `SendARP` never reads the cache: it always asks the network again (over 1 s even for a cached phone, and it failed for one that Windows had resolved).
+- Run beside a ping, `SendARP` disturbed Windows' own resolution of the same address: the cache entry vanished, and two phones that answer ping alone did not answer at all.
+- A ping on its own, then a cache read, gave the MAC 4 out of 4 times.
+
+So the scan now pings first and uses ARP after (`lan_scan::probe`):
+1. **Ping answered:** the MAC comes from Windows' neighbour cache through a new S2 operation, `cached_mac` (`GetIpNetTable2`, sends nothing). Windows resolved it to send the echo. When the cache has nothing (this PC's own address), it falls back to `SendARP`.
+2. **Ping silent, and the cache holds a MAC:** a fresh `SendARP` must confirm it, because the cache outlives a device that has left. The first measurement showed one (`.26`) still holding its old MAC.
+3. **Ping silent, nothing resolved in the cache:** stop. Sending the echo already made Windows ask ARP, and nothing answered. Empty addresses still cost one second.
+
+Result on the real /24: 44 Devices in 6.1 s; every Device that answered the ping has its MAC; 6 firewalled PCs found by ARP alone ("no ping reply"); `.3`, flagged "no ping reply" under the old design, now answers the ping. Tests: 5 new or rewritten S1 tests (the fake gained `with_cached_mac` and `cache_reads`, and a device that answers ARP is also in its cache), and a smoke test that reads the gateway's MAC from the real cache after a ping, within 500 ms.
+
+Also fixed: MAC addresses wrapped onto three lines; the LAN Scan screen is now wider (`max-w-5xl`) and IP, MAC and response time no longer wrap.

@@ -408,15 +408,18 @@ async fn on_the_pcs_own_subnet_a_device_that_answers_both_shows_its_mac_and_resp
 }
 
 #[tokio::test(start_paused = true)]
-async fn arp_is_only_sent_for_addresses_on_the_pcs_own_subnet() {
-    let network = pc_on_lan();
+async fn only_addresses_on_the_pcs_own_subnet_are_looked_up_by_arp() {
+    // 10.0.0.254 is on 10.0.0.0/24; 10.0.1.0 is beyond a router, so its ARP answer never counts.
+    let network = pc_on_lan()
+        .with_arp("10.0.0.254", MAC_A)
+        .with_arp("10.0.1.0", MAC_B);
 
-    scan(&network, "10.0.0.254-10.0.1.1").await;
+    let result = scan(&network, "10.0.0.254-10.0.1.1").await;
 
-    // 10.0.0.254 and 10.0.0.255 are on 10.0.0.0/24; 10.0.1.0 and 10.0.1.1 are beyond a router.
-    let mut asked = network.arp_requests();
-    asked.sort();
-    assert_eq!(asked, [v4("10.0.0.254"), v4("10.0.0.255")]);
+    let found: Vec<_> = result.devices.iter().map(|d| d.address).collect();
+    let beyond = |asked: Vec<Ipv4Addr>| asked.iter().any(|a| a.octets()[2] == 1);
+    assert_eq!(found, [v4("10.0.0.254")]);
+    assert!(!beyond(network.arp_requests()) && !beyond(network.cache_reads()));
 }
 
 #[tokio::test(start_paused = true)]
@@ -473,7 +476,10 @@ async fn every_adapter_that_is_up_has_its_own_subnet_but_a_tunnel_or_a_down_adap
     };
     let network = FakeNetwork::new()
         .with_adapters(vec![adapter("Ethernet", "10.0.0.23", 24), wifi, down, vpn])
-        .with_silent_echoes_unless_scripted();
+        .with_silent_echoes_unless_scripted()
+        .with_arp("192.168.50.1", MAC_A)
+        .with_arp("172.30.0.1", MAC_A)
+        .with_arp("10.99.0.1", MAC_A);
 
     scan(&network, "192.168.50.1").await;
     scan(&network, "172.30.0.1").await;
@@ -933,5 +939,75 @@ IP         HOSTNAME            MAC                VENDOR                   RESPO
 
 Found 3 Devices among 254 addresses; 1 with no ping reply
 "
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_that_answered_the_ping_but_not_arp_gets_its_mac_from_the_pcs_arp_cache() {
+    // A slow Wi-Fi client misses the ARP request yet answers the ping, and Windows resolved its MAC
+    // to send that ping: the MAC is in the neighbour cache.
+    let network = reply("10.0.0.5", 280)(pc_on_lan()).with_cached_mac("10.0.0.5", MAC_PI);
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(
+        (
+            result.devices[0].mac,
+            result.devices[0].vendor.as_deref(),
+            network.arp_requests().len()
+        ),
+        (Some(MAC_PI), Some("Raspberry Pi Foundation"), 0)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cache_entry_alone_does_not_make_a_device() {
+    // The cache can remember a device that has since left: only a fresh ARP answer counts.
+    let network = pc_on_lan().with_cached_mac("10.0.0.5", MAC_PI);
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(
+        (result.devices, network.arp_requests()),
+        (vec![], vec![v4("10.0.0.5")])
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn no_arp_request_is_sent_alongside_the_ping() {
+    // Windows' SendARP disturbs its own resolution of the same address, so a device that answers
+    // ping when asked alone can go silent with an ARP request beside it.
+    let network = reply("10.0.0.5", 3)(pc_on_lan()).with_arp("10.0.0.5", MAC_A);
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(
+        (result.devices[0].mac, network.arp_requests()),
+        (Some(MAC_A), Vec::<Ipv4Addr>::new())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_address_windows_could_not_resolve_for_the_ping_is_not_asked_by_arp_again() {
+    // Sending the echo already made Windows ask ARP for it; nothing answered.
+    let network = pc_on_lan();
+
+    let result = scan(&network, "10.0.0.5").await;
+
+    assert_eq!(
+        (result.devices, network.arp_requests()),
+        (vec![], Vec::<Ipv4Addr>::new())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_beyond_the_pcs_subnet_is_never_looked_up_by_arp_even_after_answering_the_ping() {
+    let network = reply("172.16.0.5", 12)(pc_on_lan());
+
+    scan(&network, "172.16.0.5").await;
+
+    assert_eq!(
+        (network.arp_requests(), network.cache_reads()),
+        (Vec::<Ipv4Addr>::new(), Vec::<Ipv4Addr>::new())
     );
 }

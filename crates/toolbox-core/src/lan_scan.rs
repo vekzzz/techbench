@@ -508,30 +508,46 @@ async fn look_up_hostname(
     (address, name)
 }
 
-/// Pings `address`, and on this PC's own subnet asks ARP at the same time. A Device exists if
-/// either answered.
+/// Pings `address`; on this PC's own subnet, ARP then decides whether a silent address holds a
+/// Device and supplies the MAC. A Device exists if either answered.
+///
+/// ARP comes after the ping, never beside it: Windows' SendARP disturbs its own resolution of the
+/// same address, and on a real network that made devices that answer ping alone go silent.
 async fn probe(
     network: &impl Network,
     address: Ipv4Addr,
     own_subnets: &[Subnet],
 ) -> Option<Device> {
-    let echo = network.icmp_echo(EchoRequest {
-        address: IpAddr::V4(address),
-        payload_size: DEFAULT_PAYLOAD_SIZE,
-        dont_fragment: false,
-        ttl: None,
-        timeout: PROBE_TIMEOUT,
-    });
-    let on_own_subnet = own_subnets.iter().any(|subnet| subnet.contains(address));
-    let (echo, mac) = if on_own_subnet {
-        let (echo, mac) = tokio::join!(echo, network.arp_resolve(address, PROBE_TIMEOUT));
-        (echo, mac)
-    } else {
-        (echo.await, None)
-    };
+    let echo = network
+        .icmp_echo(EchoRequest {
+            address: IpAddr::V4(address),
+            payload_size: DEFAULT_PAYLOAD_SIZE,
+            dont_fragment: false,
+            ttl: None,
+            timeout: PROBE_TIMEOUT,
+        })
+        .await;
     let response_time = match echo {
         EchoOutcome::Reply { round_trip, .. } => Some(round_trip),
         _ => None,
+    };
+    let on_own_subnet = own_subnets.iter().any(|subnet| subnet.contains(address));
+    let mac = if !on_own_subnet {
+        None
+    } else if response_time.is_some() {
+        // Windows resolved the MAC to send the echo, so its neighbour cache holds it. This PC's
+        // own address is never in that cache, so ask ARP for anything missing.
+        match network.cached_mac(address).await {
+            Some(mac) => Some(mac),
+            None => network.arp_resolve(address, PROBE_TIMEOUT).await,
+        }
+    } else if network.cached_mac(address).await.is_some() {
+        // Silent to ping, but Windows knows a MAC for it: a firewalled PC, or a device that has
+        // left (the cache outlives it). Only a fresh ARP answer says it is there now.
+        network.arp_resolve(address, PROBE_TIMEOUT).await
+    } else {
+        // Sending the echo already made Windows ask ARP for it, and nothing answered.
+        None
     };
     if response_time.is_none() && mac.is_none() {
         return None;

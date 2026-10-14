@@ -15,12 +15,17 @@ Spec: user stories 1, 2, 6, 7, 74–79; Implementation Decisions › Shape of th
 - [x] A contains-check reports whether a second address is inside the subnet.
 - [x] /31 yields two usable addresses and no broadcast; /32 yields one usable address.
 - [x] IPv6 prefixes show network, prefix, first and last address and address count, with no broadcast or wildcard.
-- [ ] Invalid input shows a clear inline message and never crashes.
+- [x] Invalid input shows a clear inline message and never crashes.
 - [x] Results update as the Technician types.
-- [ ] Switching to another sidebar entry and back keeps Subnet Calculator's inputs and results (Tool state lives above the Tool screens).
-- [ ] Dark theme by default with a light toggle; addresses and results use a monospace font.
+- [x] Switching to another sidebar entry and back keeps Subnet Calculator's inputs and results (Tool state lives above the Tool screens).
+- [x] Dark theme by default with a light toggle; addresses and results use a monospace font.
 - [x] Table-driven core tests cover /0–/32, the /31 and /32 edge cases, dotted-mask input, the contains-check, IPv6 prefixes and invalid input, and run with the project's standard test command.
 
 ## Comments
 
 **2026-10-13 — implementation pass (Claude).** Toolbox core crate plus Tauri shell plus React UI built test-first; 19 core tests pass via `npm test` (`cargo test --workspace`), clippy clean. Verified in the running dev app: sidebar, placeholders, live Subnet Calculator results and the contains-check. Still to confirm by hand: the inline invalid-input message, the state surviving a sidebar switch, and the light-theme toggle. The core spells out the IPv6 /0 count (2^128) as text, because u128 cannot hold it.
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- Invalid input: `10.0.0.300/24` → "not an IP address", `192.168.1.0/99` → "an IPv4 prefix must be between 0 and 32", `garbage!!` → "expected address/prefix or address and mask", shown in red under the field (marked `aria-invalid`); the app kept working.
+- `192.168.1.10/24` with check `192.168.1.200` ("Inside") survived Port Check and back, both fields and results intact.
+- A fresh profile opened dark; the toggle switched to light (remembered as `light`) and back. The field and result values use JetBrains Mono.

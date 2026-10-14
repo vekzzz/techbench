@@ -228,6 +228,10 @@ pub trait Network: Send + Sync {
         timeout: Duration,
     ) -> impl Future<Output = Option<[u8; 6]>> + Send;
 
+    /// The MAC this PC's neighbour (ARP) cache holds for `address`, if any. Sends nothing, so it
+    /// says nothing about whether the device is there now: an entry can outlive the device.
+    fn cached_mac(&self, address: Ipv4Addr) -> impl Future<Output = Option<[u8; 6]>> + Send;
+
     /// This PC's network adapters.
     fn adapters(&self) -> impl Future<Output = Vec<Adapter>> + Send;
 
@@ -345,6 +349,21 @@ impl Network for SystemNetwork {
         {
             let _ = (address, timeout);
             unimplemented!("ARP resolution is implemented for Windows only (ADR 0002)")
+        }
+    }
+
+    async fn cached_mac(&self, address: Ipv4Addr) -> Option<[u8; 6]> {
+        #[cfg(windows)]
+        {
+            tokio::task::spawn_blocking(move || crate::windows_arp::cached(address))
+                .await
+                .ok()
+                .flatten()
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = address;
+            unimplemented!("the neighbour cache is read on Windows only (ADR 0002)")
         }
     }
 

@@ -12,10 +12,10 @@ Spec: user stories 45–51; Implementation Decisions › Network adapter, Per-To
 - [x] Record types A, AAAA, CNAME, MX, TXT, NS, PTR and SOA are supported.
 - [x] The default server is the first DNS server on the adapter carrying the default route; 8.8.8.8 and 1.1.1.1 are quick picks; any server can be typed.
 - [x] Entering an IP address as the query switches the record type to PTR automatically.
-- [ ] Each record shows type, value and TTL; the Result names the answering server and the response time.
+- [x] Each record shows type, value and TTL; the Result names the answering server and the response time.
 - [x] NXDOMAIN, SERVFAIL, an empty answer and no response are reported as distinct, plain-language outcomes.
 - [x] Queries go to the chosen server directly; the hosts file is not consulted.
-- [ ] Copy as text works.
+- [x] Copy as text works.
 - [x] Core tests with the fake adapter cover record shaping per type, automatic PTR, the four outcomes, and golden Copy as text; tests against public DNS servers are opt-in only.
 
 ## Comments
@@ -46,3 +46,6 @@ Accepted or deferred:
 - **Copying while the lookup runs** (story 83) is not offered: a lookup takes at most about 4 s, and it has no partial Result to show. Copy works as soon as it finishes or is stopped.
 - The query id is clock- and counter-based; the random source port plus matching the question is what makes spoofing hard. The client does not use EDNS (so big answers fall back to TCP) or validate DNSSEC.
 - The screen still labels its field "Name or IP address" rather than "Target", since it takes either and the Tool's meaning differs.
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- `google.com` MX against 8.8.8.8: table Name | Type | TTL | Value with `google.com | MX | 160 | 10 smtp.google.com`, and "Server 8.8.8.8 answered in 19 ms". Copy gave the full Result (Query, Type, Server, Answered, record table, "1 record").

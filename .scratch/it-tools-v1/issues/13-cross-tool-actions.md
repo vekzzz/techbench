@@ -9,12 +9,12 @@ Spec: user stories 24, 25; Implementation Decisions › UI.
 **Status:** ready-for-agent
 **Category:** enhancement
 
-- [ ] Devices, Hops and Saved Targets each offer Ping, Continuous Ping, Traceroute, Port Check and DNS Lookup; Devices and Hops also offer Save as Target.
-- [ ] Choosing an action switches to that Tool with the address filled in and the Run started, behaving exactly as if the Technician had typed the address and started it.
-- [ ] A Hop with no address (all probes silent) offers no actions.
-- [ ] Continuous Ping adds the address alongside running Targets when fewer than three are running; otherwise the Technician is told to stop one first.
-- [ ] DNS Lookup on an address performs a PTR lookup.
-- [ ] Save as Target from a Device pre-fills the label with its hostname when known.
+- [x] Devices, Hops and Saved Targets each offer Ping, Continuous Ping, Traceroute, Port Check and DNS Lookup; Devices and Hops also offer Save as Target.
+- [x] Choosing an action switches to that Tool with the address filled in and the Run started, behaving exactly as if the Technician had typed the address and started it.
+- [x] A Hop with no address (all probes silent) offers no actions.
+- [x] Continuous Ping adds the address alongside running Targets when fewer than three are running; otherwise the Technician is told to stop one first.
+- [x] DNS Lookup on an address performs a PTR lookup.
+- [x] Save as Target from a Device pre-fills the label with its hostname when known.
 
 ## Comments
 
@@ -31,3 +31,10 @@ Spec: user stories 24, 25; Implementation Decisions › UI.
 - **Continuous Ping reuses a slot whose Run has ended**, or one with a typed but unstarted Target, if no slot is empty; only running slots are protected. That follows "when fewer than three are running".
 - **Port Check from an action** shows its "enter at least one port" message when no ports are typed, as the ticket says ("as if the Technician had typed the address and started it").
 - The names `followLead` and `LeadAction` are not in CONTEXT.md; they are code-level only, and the screens say "Actions".
+
+**2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
+- Menus: Device and Hop offer Ping, Continuous Ping, Traceroute, Port Check, DNS Lookup, Save as Target; a Saved Target offers the first five. Silent Hops (`*`) have no menu.
+- Device 192.168.1.1 → Ping: Ping screen in Once mode, field filled, 4 echoes running. Device → Traceroute: "Reached 192.168.1.23 in 1 hop". Saved Target 8.8.8.8 → Port Check with no ports typed: "enter at least one port…", as for a typed Target; with `443, 53` typed it ran (2 Open).
+- Hop 122.54.193.115 → DNS Lookup: asked `115.193.54.122.in-addr.arpa`, PTR `122.54.193.115.pldt.net`.
+- Continuous Ping from three Devices filled the three slots, all running; a fourth showed "Three Continuous Pings are already running. Stop one first, then try again."
+- Save as Target from 192.168.1.19 opened Saved Targets with label `MACBOOKPRO-54D3`; from a Device without a hostname the label was empty.
