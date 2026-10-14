@@ -219,6 +219,15 @@ pub trait Network: Send + Sync {
     /// The name the system's DNS gives `address` (a reverse lookup), if any.
     fn reverse_lookup(&self, address: IpAddr) -> impl Future<Output = Option<String>> + Send;
 
+    /// The hardware (MAC) address of the device on this PC's own network that holds `address`,
+    /// found by an ARP request, or None when nothing answered within `timeout`. Works only for
+    /// addresses on a subnet this PC is directly connected to.
+    fn arp_resolve(
+        &self,
+        address: Ipv4Addr,
+        timeout: Duration,
+    ) -> impl Future<Output = Option<[u8; 6]>> + Send;
+
     /// This PC's network adapters.
     fn adapters(&self) -> impl Future<Output = Vec<Adapter>> + Send;
 
@@ -316,6 +325,26 @@ impl Network for SystemNetwork {
         {
             let _ = address;
             unimplemented!("reverse lookup is implemented for Windows only (ADR 0002)")
+        }
+    }
+
+    async fn arp_resolve(&self, address: Ipv4Addr, timeout: Duration) -> Option<[u8; 6]> {
+        #[cfg(windows)]
+        {
+            // The ARP call cannot be given a timeout, so stop waiting on it; the blocking call
+            // finishes on its own thread shortly after.
+            let resolving =
+                tokio::task::spawn_blocking(move || crate::windows_arp::resolve(address));
+            tokio::time::timeout(timeout, resolving)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (address, timeout);
+            unimplemented!("ARP resolution is implemented for Windows only (ADR 0002)")
         }
     }
 

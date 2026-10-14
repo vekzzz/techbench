@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -60,6 +60,10 @@ pub struct FakeNetwork {
     connect_timeouts: Mutex<Vec<Duration>>,
     echoes: Mutex<HashMap<IpAddr, VecDeque<EchoScript>>>,
     echo_requests: Mutex<Vec<EchoRequest>>,
+    /// Unscripted echoes time out like a silent Target instead of failing the test.
+    silent_unless_scripted: bool,
+    arp_answers: HashMap<Ipv4Addr, [u8; 6]>,
+    arp_requests: Mutex<Vec<Ipv4Addr>>,
     /// Echo scripts for requests that carry a TTL, by address and TTL.
     hops: Mutex<HashMap<(IpAddr, u8), VecDeque<EchoScript>>>,
     reverse_names: HashMap<IpAddr, ReverseScript>,
@@ -79,6 +83,9 @@ impl FakeNetwork {
             connect_timeouts: Mutex::new(Vec::new()),
             echoes: Mutex::new(HashMap::new()),
             echo_requests: Mutex::new(Vec::new()),
+            silent_unless_scripted: false,
+            arp_answers: HashMap::new(),
+            arp_requests: Mutex::new(Vec::new()),
             hops: Mutex::new(HashMap::new()),
             reverse_names: HashMap::new(),
             dns_answers: HashMap::new(),
@@ -120,6 +127,23 @@ impl FakeNetwork {
             .or_default()
             .extend(scripts);
         self
+    }
+
+    /// Echoes nobody scripted time out, like a Target that drops pings, instead of failing the test.
+    pub fn with_silent_echoes_unless_scripted(mut self) -> Self {
+        self.silent_unless_scripted = true;
+        self
+    }
+
+    /// The device at `address` answers ARP with `mac`; any other address does not answer.
+    pub fn with_arp(mut self, address: &str, mac: [u8; 6]) -> Self {
+        self.arp_answers.insert(address.parse().unwrap(), mac);
+        self
+    }
+
+    /// Every address an ARP request was sent for, in order.
+    pub fn arp_requests(&self) -> Vec<Ipv4Addr> {
+        self.arp_requests.lock().unwrap().clone()
     }
 
     /// Echoes sent to `address` with this `ttl` get these scripted answers, in order.
@@ -288,6 +312,10 @@ impl Network for FakeNetwork {
                 EchoOutcome::TimedOut
             }
             Some(EchoScript::Hang) => std::future::pending().await,
+            None if self.silent_unless_scripted => {
+                tokio::time::sleep(request.timeout).await;
+                EchoOutcome::TimedOut
+            }
             None => panic!(
                 "test did not script echo {} to {}",
                 self.echo_requests().len(),
@@ -319,6 +347,11 @@ impl Network for FakeNetwork {
                 Some(name.clone())
             }
         }
+    }
+
+    async fn arp_resolve(&self, address: Ipv4Addr, _timeout: Duration) -> Option<[u8; 6]> {
+        self.arp_requests.lock().unwrap().push(address);
+        self.arp_answers.get(&address).copied()
     }
 
     async fn adapters(&self) -> Vec<Adapter> {

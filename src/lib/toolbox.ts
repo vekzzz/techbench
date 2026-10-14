@@ -299,6 +299,57 @@ export function defaultDnsServer(): Promise<string | null> {
   return invoke("default_dns_server");
 }
 
+/** One Device LAN Scan found present at an address. */
+export type DeviceInfo = {
+  address: string;
+  /** Only known for a Device on this PC's own subnet, where ARP reaches. */
+  mac: string | null;
+  responseMs: number | null;
+  /** It answered ARP but not the ping. */
+  noPingReply: boolean;
+  /** Whether ARP could reach it, which is why a MAC may be blank. */
+  onOwnSubnet: boolean;
+};
+
+export type LanScanResult = {
+  /** The Devices found, in numeric IP order. */
+  devices: DeviceInfo[];
+  addressesTotal: number;
+  addressesProbed: number;
+  ending: RunEnding;
+  failureReason: string | null;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+export type LanScanUpdate =
+  | { kind: "started"; addresses: number }
+  | { kind: "device"; device: DeviceInfo }
+  | { kind: "progress"; probed: number; total: number }
+  | { kind: "finished"; result: LanScanResult };
+
+/** `range` as typed: CIDR, start–end or one address. `confirmed`: the Technician agreed to a big range. */
+export type LanScanInput = { range: string; confirmed: boolean };
+
+/** Starts a LAN Scan Run. Rejects with a message, before any Run starts, when the range is invalid, too big, or big and unconfirmed. */
+export function startLanScan(input: LanScanInput, onUpdate: (update: LanScanUpdate) => void): Promise<{ id: RunId; addresses: number }> {
+  const channel = new Channel<LanScanUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_lan_scan", { input, onUpdate: channel });
+}
+
+/** How many addresses a range spans, and whether scanning it needs the Technician's confirmation. Rejects when the range is invalid or too big. */
+export function lanRangeInfo(range: string): Promise<{ addresses: number; needsConfirmation: boolean }> {
+  return invoke("lan_range_info", { range });
+}
+
+/** The network of the adapter carrying the default route, as CIDR; null when it has no IPv4 address. */
+export function defaultLanRange(): Promise<string | null> {
+  return invoke("default_lan_range");
+}
+
 export type SubnetReport = {
   network: string;
   prefix: number;

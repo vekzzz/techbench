@@ -22,6 +22,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { ComingSoon } from "@/screens/coming-soon";
 import { DnsLookup } from "@/screens/dns-lookup";
 import { IpInfo } from "@/screens/ip-info";
+import { LanScan } from "@/screens/lan-scan";
 import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
@@ -66,6 +67,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
       return <IpInfo />;
     case "port-check":
       return <PortCheck />;
+    case "lan-scan":
+      return <LanScan />;
     default:
       return <ComingSoon screen={screen} />;
   }

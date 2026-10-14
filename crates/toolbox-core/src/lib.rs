@@ -4,6 +4,7 @@ pub mod continuous_ping;
 mod dns_client;
 pub mod dns_lookup;
 pub mod ip_info;
+pub mod lan_scan;
 pub mod network;
 pub mod ping;
 pub mod port_check;
@@ -14,6 +15,8 @@ pub mod target;
 pub mod traceroute;
 #[cfg(windows)]
 mod windows_adapters;
+#[cfg(windows)]
+mod windows_arp;
 #[cfg(windows)]
 mod windows_icmp;
 #[cfg(windows)]

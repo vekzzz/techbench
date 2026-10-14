@@ -226,3 +226,35 @@ export const useDnsLookup = createRunStore({
   accepted: (run, started) => ({ ...run, id: started.id }),
   apply: (run, update: toolbox.DnsLookupUpdate) => ({ ...run, result: update.result }),
 });
+
+/** A LAN Scan Run as the UI follows it: Devices appear as found, with a count of addresses probed. */
+export type LanScanRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  /** How many addresses the Run will probe; null until the shell has accepted the Run. */
+  total: number | null;
+  probed: number;
+  devices: toolbox.DeviceInfo[];
+  result: toolbox.LanScanResult | null;
+};
+
+const lanScanInput: toolbox.LanScanInput = { range: "", confirmed: false };
+
+export const useLanScan = createRunStore({
+  input: lanScanInput,
+  begin: (key): LanScanRun => ({ key, id: null, total: null, probed: 0, devices: [], result: null }),
+  start: toolbox.startLanScan,
+  accepted: (run, started) => ({ ...run, id: started.id, total: started.addresses }),
+  apply: (run, update: toolbox.LanScanUpdate) => {
+    switch (update.kind) {
+      case "started":
+        return { ...run, total: update.addresses };
+      case "device":
+        return { ...run, devices: [...run.devices, update.device] };
+      case "progress":
+        return { ...run, probed: update.probed, total: update.total };
+      case "finished":
+        return { ...run, probed: update.result.addressesProbed, devices: update.result.devices, result: update.result };
+    }
+  },
+});

@@ -3,6 +3,7 @@
 mod continuous_ping;
 mod dns_lookup;
 mod ip_info;
+mod lan_scan;
 mod ping;
 mod port_check;
 mod runs;
@@ -23,6 +24,9 @@ pub fn run() {
             dns_lookup::default_dns_server,
             dns_lookup::start_dns_lookup,
             ip_info::start_ip_info,
+            lan_scan::default_lan_range,
+            lan_scan::lan_range_info,
+            lan_scan::start_lan_scan,
             ping::ping_defaults,
             ping::start_ping,
             port_check::port_presets,
