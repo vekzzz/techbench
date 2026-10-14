@@ -41,3 +41,16 @@ Traceroute (`traceroute` module):
 - Shell `start_traceroute`, store, and a Traceroute screen with a table that fills in as Hops arrive.
 
 **Not verified in the running app:** the Traceroute screen (rows appearing, hostnames filling in, Copy while running). My GUI check failed: the app window was not actually visible where I captured, and I captured an unrelated browser page instead (deleted; nothing was typed or clicked). Boxes "Each Hop row appears as discovered…" and "A trace can be stopped mid-way, and a stopped or running trace can be copied" stay unticked for a manual look.
+
+**2026-10-14 — review follow-up (Claude).** Fixed:
+- **A failure to send from this PC looked like 30 silent Hops.** When no route exists or the adapter is down, every probe fails at once, so the trace flashed through 30 rows of `*` and ended "Did not reach". It now ends at the first Hop: "Could not send probes from this PC to 8.8.8.8: there is no route, or the adapter is down" (`×` in the table).
+- **Load-balanced Hops hid the other routers.** A probe answered by a different router than the Hop's own address now shows it: `2 ms (10.0.0.3)`, in the text and in the UI.
+- **Stopping after the Target was reached turned a complete trace into a stopped one.** Stopping while names are still arriving now just abandons the names; the Result stays Completed.
+- **Glossary:** "trace" and "router" (as a name for a Hop) removed from the code, tests and UI ("Start" button; "Following the path… 1 hop found"); a copy-paste plural bug fixed.
+- **`windows_names.rs`:** a dead "answer equals the address" guard removed (NI_NAMEREQD already fails in that case), and the Winsock comment now says it is started once for the process.
+
+Accepted or deferred:
+- A Reply carries no responding address. A reply always comes from the Target, which Traceroute already knows; the spec's S2 sentence is not literally met.
+- Probes of a Hop go out together, so a router that rate-limits ICMP may show a few more `*` than sequential probing would.
+- Ending on a router's "destination unreachable", the 2 s name timeout, and waiting up to 2 s at the end for the last names are additions beyond the ticket.
+- IPv6 routers (time exceeded over ICMPv6) rest on the Windows API's documented behaviour; only IPv6 loopback was exercised for real.

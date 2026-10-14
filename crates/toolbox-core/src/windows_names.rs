@@ -59,9 +59,8 @@ pub(crate) fn reverse_lookup(address: IpAddr) -> Option<String> {
         return None;
     }
     let length = name.iter().position(|unit| *unit == 0)?;
-    let found = String::from_utf16_lossy(&name[..length]);
-    // Windows answers with the address itself when it has nothing better; that is not a name.
-    (found != address.to_string()).then_some(found)
+    // NI_NAMEREQD makes Windows fail rather than answer with the numeric address.
+    Some(String::from_utf16_lossy(&name[..length]))
 }
 
 /// # Safety
@@ -81,7 +80,8 @@ unsafe fn lookup(socket: *const SOCKADDR, length: usize, name: &mut [u16; NAME_C
     }
 }
 
-/// Winsock must be started before name lookups; starting it again is harmless (it is counted).
+/// Winsock must be started before name lookups. Started once for the life of the process, so
+/// there is deliberately no matching WSACleanup.
 fn start_winsock() {
     static STARTED: Once = Once::new();
     STARTED.call_once(|| {

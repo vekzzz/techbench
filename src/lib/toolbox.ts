@@ -211,7 +211,12 @@ export function defaultGateway(): Promise<string | null> {
   return invoke("default_gateway");
 }
 
-export type ProbeInfo = { status: "answered" | "unreachable" | "silent"; roundTripMs: number | null };
+export type ProbeInfo = {
+  status: "answered" | "unreachable" | "silent" | "couldNotSend";
+  roundTripMs: number | null;
+  /** The router that answered, when it was not the Hop's own address. */
+  from: string | null;
+};
 
 /** One router on the path. */
 export type HopInfo = {

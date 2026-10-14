@@ -1,4 +1,4 @@
-//! Traceroute: lists each router Hop between this PC and a Target. Probes go out with a growing
+//! Traceroute: lists each Hop between this PC and a Target. Probes go out with a growing
 //! TTL; each router that finds it spent answers, so each answer names the next Hop.
 
 use std::net::IpAddr;
@@ -15,7 +15,7 @@ use crate::ping::DEFAULT_PAYLOAD_SIZE;
 use crate::run::{self, Opening, Progress, RunEnding, RunHeader, milliseconds, text_table};
 use crate::target::{AddressFamily, ChosenTarget};
 
-/// How many Hops a trace follows before giving up.
+/// How many Hops a Traceroute follows before giving up.
 const MAX_HOPS: u8 = 30;
 
 /// Probes sent for each Hop.
@@ -55,6 +55,8 @@ pub enum Probe {
     Answered { from: IpAddr, round_trip: Duration },
     /// A router reported the destination unreachable.
     Unreachable { from: IpAddr },
+    /// This PC could not send the probe at all: no route, or the adapter is down.
+    CouldNotSend,
     /// No answer before the timeout: shown as `*`.
     Silent,
 }
@@ -122,6 +124,11 @@ impl TracerouteResult {
             if last.reached_target {
                 return format!("Reached {target} in {}", hops(found));
             }
+            if could_not_send(last) {
+                return format!(
+                    "Could not send probes from this PC to {target}: there is no route, or the adapter is down"
+                );
+            }
             if let Some(Probe::Unreachable { from }) = last
                 .probes
                 .iter()
@@ -154,9 +161,13 @@ impl TracerouteResult {
                     hop.hostname.clone().unwrap_or_else(|| "-".to_string()),
                 ];
                 row.extend(hop.probes.iter().map(|probe| match probe {
+                    // A probe answered by another router than the Hop's own names it.
+                    Probe::Answered { from, round_trip } if Some(*from) != hop.address => {
+                        format!("{} ({from})", milliseconds(*round_trip))
+                    }
                     Probe::Answered { round_trip, .. } => milliseconds(*round_trip),
                     Probe::Unreachable { .. } => "!".to_string(),
-                    Probe::Silent => "*".to_string(),
+                    Probe::Silent | Probe::CouldNotSend => "*".to_string(),
                 }));
                 row
             })
@@ -227,7 +238,7 @@ pub async fn run_with_progress(
         };
 
         let hop = hop_from(ttl, resolved, &outcomes);
-        let finished = hop.reached_target || is_unreachable(&hop);
+        let finished = hop.reached_target || is_unreachable(&hop) || could_not_send(&hop);
         if let Some(address) = hop.address {
             lookups.push(look_up_hostname(network, ttl, address));
         }
@@ -238,16 +249,11 @@ pub async fn run_with_progress(
         }
     }
 
-    // The last names may still be coming in.
+    // The last names may still be coming in. Stopping now only abandons them: the path itself
+    // is already complete, so the Result stays Completed.
     if ending != RunEnding::Stopped {
-        while let Some(found) = stop.run_until_cancelled(lookups.next()).await {
-            match found {
-                Some((hop, hostname)) => record_hostname(progress, &mut on_event, hop, hostname),
-                None => break,
-            }
-        }
-        if stop.is_cancelled() {
-            ending = RunEnding::Stopped;
+        while let Some(Some((hop, hostname))) = stop.run_until_cancelled(lookups.next()).await {
+            record_hostname(progress, &mut on_event, hop, hostname);
         }
     }
 
@@ -308,15 +314,15 @@ fn hop_from(number: u8, target: IpAddr, outcomes: &[EchoOutcome]) -> Hop {
                 round_trip,
             } => Probe::Answered { from, round_trip },
             EchoOutcome::Unreachable { from: Some(from) } => Probe::Unreachable { from },
+            EchoOutcome::Unreachable { from: None } => Probe::CouldNotSend,
             EchoOutcome::TimeExceeded { from: None, .. }
-            | EchoOutcome::Unreachable { from: None }
             | EchoOutcome::TimedOut
             | EchoOutcome::FragmentationNeeded => Probe::Silent,
         })
         .collect();
     let address = probes.iter().find_map(|probe| match probe {
         Probe::Answered { from, .. } | Probe::Unreachable { from } => Some(*from),
-        Probe::Silent => None,
+        Probe::Silent | Probe::CouldNotSend => None,
     });
     let reached_target = outcomes
         .iter()
@@ -328,6 +334,13 @@ fn hop_from(number: u8, target: IpAddr, outcomes: &[EchoOutcome]) -> Hop {
         hostname: None,
         reached_target,
     }
+}
+
+/// A Hop whose every probe failed to leave this PC: nothing further can be learned.
+fn could_not_send(hop: &Hop) -> bool {
+    hop.probes
+        .iter()
+        .all(|probe| matches!(probe, Probe::CouldNotSend))
 }
 
 /// A Hop where a router said the destination is unreachable and nothing got further.

@@ -38,7 +38,7 @@ fn hop(network: FakeNetwork, ttl: u8, probes: [EchoScript; 3]) -> FakeNetwork {
     network.with_hop_echoes("8.8.8.8", ttl, probes)
 }
 
-async fn trace(network: &FakeNetwork) -> TracerouteResult {
+async fn run_traceroute(network: &FakeNetwork) -> TracerouteResult {
     let traceroute = request("8.8.8.8")
         .validate()
         .expect("request should be valid");
@@ -46,7 +46,7 @@ async fn trace(network: &FakeNetwork) -> TracerouteResult {
 }
 
 #[tokio::test(start_paused = true)]
-async fn each_hop_lists_its_address_and_three_round_trips_and_the_trace_stops_at_the_target() {
+async fn each_hop_lists_its_address_and_three_round_trips_and_the_traceroute_stops_at_the_target() {
     let network = hop(
         FakeNetwork::new(),
         1,
@@ -71,7 +71,7 @@ async fn each_hop_lists_its_address_and_three_round_trips_and_the_trace_stops_at
         [target_reply(14), target_reply(15), target_reply(13)],
     );
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(
         (
@@ -115,7 +115,7 @@ async fn the_text_shows_silent_probes_as_a_star_and_a_silent_hop_as_only_stars()
         [target_reply(14), EchoScript::Silent, target_reply(13)],
     );
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(
         result.to_text(),
@@ -153,7 +153,7 @@ async fn a_hop_where_only_some_probes_answer_still_has_an_address() {
         [target_reply(5), target_reply(5), target_reply(5)],
     );
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(result.hops[0].address, Some(ip("192.168.1.1")));
 }
@@ -172,14 +172,14 @@ async fn the_three_probes_of_a_hop_are_sent_together_so_a_silent_hop_costs_one_t
     );
     let started = tokio::time::Instant::now();
 
-    trace(&network).await;
+    run_traceroute(&network).await;
 
     // 1 s timeout for the silent hop; the answered hop takes no virtual time.
     assert_eq!(started.elapsed(), ms(1000));
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_target_that_never_answers_ends_the_trace_after_thirty_hops() {
+async fn a_target_that_never_answers_ends_the_traceroute_after_thirty_hops() {
     let mut network = FakeNetwork::new();
     for ttl in 1..=30 {
         network = hop(
@@ -189,7 +189,7 @@ async fn a_target_that_never_answers_ends_the_trace_after_thirty_hops() {
         );
     }
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(
         (result.hops.len(), result.ending.clone(), result.summary()),
@@ -218,7 +218,7 @@ async fn each_probe_is_sent_with_its_hops_ttl_and_a_one_second_timeout() {
         [target_reply(5), target_reply(5), target_reply(5)],
     );
 
-    trace(&network).await;
+    run_traceroute(&network).await;
 
     let sent: Vec<(Option<u8>, std::time::Duration)> = network
         .echo_requests()
@@ -304,7 +304,7 @@ async fn a_reverse_lookup_that_takes_too_long_is_given_up_on_after_two_seconds()
     .with_slow_reverse_name("8.8.8.8", ms(60_000), "dns.google");
     let started = tokio::time::Instant::now();
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(
         (result.hops[0].hostname.clone(), started.elapsed()),
@@ -321,7 +321,7 @@ async fn the_text_shows_hostnames_in_their_own_column() {
     )
     .with_reverse_name("8.8.8.8", "dns.google");
 
-    let text = trace(&network).await.to_text();
+    let text = run_traceroute(&network).await.to_text();
 
     assert!(
         text.contains("\n1    8.8.8.8  dns.google  5 ms     5 ms     5 ms\n"),
@@ -330,7 +330,7 @@ async fn the_text_shows_hostnames_in_their_own_column() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn stopping_mid_trace_keeps_the_hops_found_and_says_how_far_it_got() {
+async fn stopping_mid_traceroute_keeps_the_hops_found_and_says_how_far_it_got() {
     let network = hop(
         FakeNetwork::new(),
         1,
@@ -363,7 +363,7 @@ async fn stopping_mid_trace_keeps_the_hops_found_and_says_how_far_it_got() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_summary_of_a_trace_still_going_says_how_far_it_has_got() {
+async fn the_summary_of_a_traceroute_still_going_says_how_far_it_has_got() {
     let network = hop(
         FakeNetwork::new(),
         1,
@@ -399,7 +399,7 @@ async fn the_summary_of_a_trace_still_going_says_how_far_it_has_got() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_router_reporting_the_destination_unreachable_ends_the_trace_there() {
+async fn a_router_reporting_the_destination_unreachable_ends_the_traceroute_there() {
     let unreachable = || {
         EchoScript::Answer(EchoOutcome::Unreachable {
             from: Some(ip("10.20.0.1")),
@@ -416,7 +416,7 @@ async fn a_router_reporting_the_destination_unreachable_ends_the_trace_there() {
     );
     let network = hop(network, 2, [unreachable(), unreachable(), unreachable()]);
 
-    let result = trace(&network).await;
+    let result = run_traceroute(&network).await;
 
     assert_eq!(
         result.summary(),
@@ -456,5 +456,69 @@ async fn a_hostname_that_does_not_resolve_ends_the_run_as_a_resolution_failure()
     assert_eq!(
         result.summary(),
         "Could not resolve nosuchhost.corp.local: No such host is known."
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failure_to_send_from_this_pc_ends_the_traceroute_at_once_and_says_so() {
+    let no_route = || EchoScript::Answer(EchoOutcome::Unreachable { from: None });
+    let network = hop(FakeNetwork::new(), 1, [no_route(), no_route(), no_route()]);
+
+    let result = run_traceroute(&network).await;
+
+    assert_eq!(
+        (result.hops.len(), result.summary()),
+        (1, "Could not send probes from this PC to 8.8.8.8: there is no route, or the adapter is down".to_string())
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hop_answered_by_different_routers_shows_each_probes_own_address() {
+    let network = hop(
+        FakeNetwork::new(),
+        1,
+        [
+            router("10.0.0.2", 1),
+            router("10.0.0.3", 2),
+            router("10.0.0.2", 1),
+        ],
+    );
+    let network = hop(
+        network,
+        2,
+        [target_reply(5), target_reply(5), target_reply(5)],
+    );
+
+    let text = run_traceroute(&network).await.to_text();
+
+    assert!(
+        text.contains("\n1    10.0.0.2  -         1 ms     2 ms (10.0.0.3)  1 ms\n"),
+        "{text}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_that_comes_after_the_target_was_reached_does_not_turn_the_traceroute_into_a_stopped_one()
+ {
+    let network = hop(
+        FakeNetwork::new(),
+        1,
+        [target_reply(5), target_reply(5), target_reply(5)],
+    )
+    .with_slow_reverse_name("8.8.8.8", ms(1500), "dns.google");
+    let traceroute = request("8.8.8.8").validate().unwrap();
+    let stop = CancellationToken::new();
+
+    let (result, ()) = tokio::join!(
+        traceroute::run(&network, &traceroute, &stop, |_| {}),
+        async {
+            tokio::time::sleep(ms(1000)).await;
+            stop.cancel();
+        }
+    );
+
+    assert_eq!(
+        (result.ending.clone(), result.summary()),
+        (RunEnding::Completed, "Reached 8.8.8.8 in 1 hop".to_string())
     );
 }

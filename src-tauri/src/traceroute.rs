@@ -45,6 +45,7 @@ pub struct HopView {
 pub struct ProbeView {
     status: &'static str,
     round_trip_ms: Option<f64>,
+    from: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -64,6 +65,11 @@ pub struct StartedTraceroute {
 
 impl From<&Hop> for HopView {
     fn from(hop: &Hop) -> Self {
+        let silent = |status| ProbeView {
+            status,
+            round_trip_ms: None,
+            from: None,
+        };
         Self {
             number: hop.number,
             address: hop.address.map(|address| address.to_string()),
@@ -72,18 +78,15 @@ impl From<&Hop> for HopView {
                 .probes
                 .iter()
                 .map(|probe| match probe {
-                    Probe::Answered { round_trip, .. } => ProbeView {
+                    Probe::Answered { from, round_trip } => ProbeView {
                         status: "answered",
                         round_trip_ms: Some(round_trip.as_secs_f64() * 1000.0),
+                        // Named only when another router than the Hop's own answered.
+                        from: (Some(*from) != hop.address).then(|| from.to_string()),
                     },
-                    Probe::Unreachable { .. } => ProbeView {
-                        status: "unreachable",
-                        round_trip_ms: None,
-                    },
-                    Probe::Silent => ProbeView {
-                        status: "silent",
-                        round_trip_ms: None,
-                    },
+                    Probe::Unreachable { .. } => silent("unreachable"),
+                    Probe::Silent => silent("silent"),
+                    Probe::CouldNotSend => silent("couldNotSend"),
                 })
                 .collect(),
             reached_target: hop.reached_target,

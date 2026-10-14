@@ -34,7 +34,7 @@ export function Traceroute() {
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex items-center gap-2">
           <Button type="submit" variant={running ? "outline" : "default"}>
-            {running ? "Stop" : "Trace"}
+            {running ? "Stop" : "Start"}
           </Button>
           {run && <CopyResult text={run.result?.text} runId={run.id} />}
         </div>
@@ -55,7 +55,11 @@ function RunView({ run }: { run: TracerouteRun }) {
         Resolved address: <span className="font-mono text-foreground">{run.resolved ?? "resolving…"}</span>
       </p>
       {run.hops.length > 0 && <HopTable hops={run.hops} />}
-      {!run.result && <p className="text-xs text-muted-foreground">Tracing… {run.hops.length} hops found</p>}
+      {!run.result && (
+        <p className="text-xs text-muted-foreground">
+          Following the path… {run.hops.length} hop{run.hops.length === 1 ? "" : "s"} found
+        </p>
+      )}
       {run.result && <p className="text-xs text-muted-foreground">{run.result.summary}</p>}
     </div>
   );
@@ -92,9 +96,10 @@ function HopTable({ hops }: { hops: HopInfo[] }) {
   );
 }
 
-/** A probe's round trip, `*` when it was silent (a filtering router, not a slow one), `!` when unreachable. */
+/** A probe's round trip (with the router, when it is not the Hop's own); `*` silent (a filtering router, not a slow one); `!` unreachable; `×` could not be sent from this PC. */
 function probeText(probe: ProbeInfo) {
   if (probe.status === "silent") return "*";
   if (probe.status === "unreachable") return "!";
-  return milliseconds(probe.roundTripMs);
+  if (probe.status === "couldNotSend") return "×";
+  return probe.from ? `${milliseconds(probe.roundTripMs)} (${probe.from})` : milliseconds(probe.roundTripMs);
 }

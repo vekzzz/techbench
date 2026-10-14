@@ -6,7 +6,7 @@ use toolbox_core::network::SystemNetwork;
 use toolbox_core::run::RunEnding;
 use toolbox_core::traceroute::{self, Probe, TracerouteRequest, TracerouteResult};
 
-async fn trace(target: &str) -> TracerouteResult {
+async fn traceroute_to(target: &str) -> TracerouteResult {
     let request = TracerouteRequest {
         target: target.to_string(),
         ..Default::default()
@@ -22,7 +22,7 @@ async fn trace(target: &str) -> TracerouteResult {
 
 #[tokio::test]
 async fn tracing_this_pc_finds_the_target_at_the_first_hop() {
-    let result = trace("127.0.0.1").await;
+    let result = traceroute_to("127.0.0.1").await;
 
     assert!(
         result.hops.len() == 1
@@ -34,7 +34,7 @@ async fn tracing_this_pc_finds_the_target_at_the_first_hop() {
 
 #[tokio::test]
 async fn tracing_this_pc_over_ipv6_also_finds_the_target_at_the_first_hop() {
-    let result = trace("::1").await;
+    let result = traceroute_to("::1").await;
 
     assert!(
         result.hops.len() == 1 && result.hops[0].reached_target,
@@ -45,9 +45,9 @@ async fn tracing_this_pc_over_ipv6_also_finds_the_target_at_the_first_hop() {
 #[tokio::test]
 #[ignore = "reaches the internet; run with --ignored"]
 async fn tracing_a_public_address_names_the_routers_on_the_way() {
-    let result = trace("8.8.8.8").await;
+    let result = traceroute_to("8.8.8.8").await;
 
-    let routers_named = result
+    let hops_with_an_address = result
         .hops
         .iter()
         .filter(|hop| hop.address.is_some())
@@ -58,7 +58,7 @@ async fn tracing_a_public_address_names_the_routers_on_the_way() {
         .flat_map(|hop| &hop.probes)
         .any(|probe| matches!(probe, Probe::Answered { .. }));
     assert!(
-        result.hops.len() >= 2 && routers_named >= 2 && answered,
+        result.hops.len() >= 2 && hops_with_an_address >= 2 && answered,
         "{}",
         result.to_text()
     );
