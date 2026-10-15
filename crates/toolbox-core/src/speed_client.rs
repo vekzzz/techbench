@@ -55,7 +55,7 @@ fn agent(family: AddressFamily) -> &'static ureq::Agent {
     })
 }
 
-/// Like [`agent`], for transfers that run for seconds: a stalled read gives up, but a long one does not.
+/// Like [`agent`], for transfers that run for seconds: only connecting and the first byte are time-limited.
 fn transfer_agent(family: AddressFamily) -> &'static ureq::Agent {
     static AGENTS: [OnceLock<ureq::Agent>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let (slot, ip_family) = ip_family(family);
@@ -72,7 +72,8 @@ fn transfer_agent(family: AddressFamily) -> &'static ureq::Agent {
             .http_status_as_error(false)
             .timeout_connect(Some(PROBE_TIMEOUT))
             .timeout_recv_response(Some(PROBE_TIMEOUT))
-            .timeout_recv_body(Some(PROBE_TIMEOUT))
+            // No limit on receiving the body: it is a total budget, not a per-read one, so any
+            // limit here cuts off a slow connection part-way. The phase's own deadline ends it.
             .build()
             .into()
     })

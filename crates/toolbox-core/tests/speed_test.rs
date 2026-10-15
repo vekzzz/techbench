@@ -810,3 +810,48 @@ fn a_run_that_did_not_complete_is_not_rated() {
     assert!(result.ratings().iter().all(|rating| rating.stars.is_none()));
     assert!(!result.to_text().contains("Ratings:"));
 }
+
+#[test]
+fn a_stopped_run_copies_with_the_finished_phases_and_says_the_rest_were_not_measured() {
+    let mut result = measured(200.0, 40.0, 17.5, 1.0);
+    result.upload = None;
+    result.ending = SpeedTestEnding::Stopped;
+
+    let text = result.to_text();
+
+    assert!(
+        text.contains("Idle latency:  17.5 ms (jitter 1.0 ms)\nDownload:      200.0 Mbps\n"),
+        "{text}"
+    );
+    assert!(text.contains("Upload:        not measured\n"), "{text}");
+    assert!(!text.contains("Ratings:"), "{text}");
+    assert!(
+        text.ends_with(
+            "Stopped before it finished; phases that did not finish are not measured.\n"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn an_interrupted_run_copies_with_the_reason_and_what_it_did_measure() {
+    let mut result = measured(200.0, 40.0, 17.5, 1.0);
+    result.download = None;
+    result.upload = None;
+    result.ending = SpeedTestEnding::Interrupted {
+        reason: "connection reset".to_string(),
+    };
+
+    let text = result.to_text();
+
+    assert!(
+        text.contains("Idle latency:  17.5 ms (jitter 1.0 ms)\nDownload:      not measured\n"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(
+            "Interrupted: connection reset. Phases that did not finish are not measured.\n"
+        ),
+        "{text}"
+    );
+}
