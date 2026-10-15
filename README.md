@@ -1,10 +1,43 @@
 # Techbench
 
-A Windows toolbox of network diagnostics for an IT Technician. Every Tool runs locally on the Technician's own PC, without Administrator rights.
+An all-in-one toolbox for IT support technicians on Windows. Eight diagnostic tools in one window, all running on your own PC, with results you can copy as plain text straight into a ticket.
 
-The domain language is in [CONTEXT.md](CONTEXT.md), architectural decisions are in [docs/adr/](docs/adr/), and the v1 spec and tickets are in [.scratch/it-tools-v1/](.scratch/it-tools-v1/).
+> Status: early (v0.1). Windows 10/11 only. The installer is unsigned.
 
-## Prerequisites (to build)
+## What it does today
+
+| Tool | What it does |
+| --- | --- |
+| **Ping** | Sends ICMP echoes to a host or IP: count, size, timeout and Don't Fragment are adjustable, with per-echo status and a summary. **Continuous Ping** runs against up to three targets side by side with a live graph, loss, min/avg/max and jitter. |
+| **Traceroute** | Lists each router hop to a target with three round trips per hop, hostnames filled in as they resolve, over IPv4 or IPv6. |
+| **DNS Lookup** | Queries A, AAAA, CNAME, MX, TXT, NS, PTR and SOA records against your PC's DNS server, 8.8.8.8, 1.1.1.1 or one you type, and tells NXDOMAIN, SERVFAIL, empty answers and no response apart. |
+| **Port Check** | Tests TCP ports on one target (lists and ranges, built-in presets such as Windows, Web, Mail, Database) and reports Open, Closed or Filtered with connect times. |
+| **LAN Scan** | Finds devices in an address range using ARP and ping, with hostname, MAC and vendor (from a bundled offline IEEE OUI list). Larger ranges ask for confirmation. |
+| **IP Info** | Shows each network adapter (addresses, gateway, DNS, MAC, DHCP lease) and your public IP, ISP and city. |
+| **Speed Test** | Measures latency, jitter, download and upload, latency under load with a Low/Moderate/High verdict, and star ratings for web browsing, streaming, gaming and video calls. Uses Cloudflare's public speed endpoints, or Ookla's `speedtest.exe` if you install it yourself. Optional ISP plan speeds show "% of plan". |
+| **Subnet Calculator** | Network, broadcast, masks, usable range and host count for IPv4 and IPv6, plus a check whether an address is in the subnet. |
+
+Also: **Saved Targets** (labelled addresses you can pick in any tool, with JSON import and export), **action menus** to jump from a device or hop into another tool, **Copy as text** on every result, and a dark theme by default with a light toggle.
+
+Everything works without Administrator rights. Only IP Info's public lookup and Speed Test use the internet.
+
+## Install (Windows)
+
+1. Download or build `Techbench_<version>_x64-setup.exe` (see below).
+2. Run it. Windows SmartScreen warns about the unsigned installer the first time: choose **More info, then Run anyway**.
+3. It installs for the current user only (`%LOCALAPPDATA%\Techbench`) and adds a Start menu entry. No UAC prompt.
+
+To uninstall: **Settings, Apps, Installed apps, Techbench, Uninstall**.
+
+### Requirements to run
+
+- Windows 10 or 11 (64-bit)
+- WebView2 runtime (included in Windows 11; the installer fetches it on Windows 10 if missing)
+- Optional, for the Ookla option in Speed Test: [Ookla's Speedtest CLI](https://www.speedtest.net/apps/cli), installed and its licence accepted by you (`winget install Ookla.Speedtest.CLI`, then run `speedtest` once). Techbench does not bundle it.
+
+## Build and run from source
+
+Requirements:
 
 - Windows 10 or 11
 - [Node.js](https://nodejs.org/) 20 or later
@@ -15,53 +48,50 @@ The domain language is in [CONTEXT.md](CONTEXT.md), architectural decisions are 
   winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
   ```
 
-Then install the JavaScript dependencies once:
-
 ```powershell
 npm install
+npm run tauri dev      # run with hot reload
+npm test               # all Rust tests
+npm run package        # build the installer: target\release\bundle\nsis\
 ```
 
-## Commands
+`cargo test --workspace -- --ignored` also runs the opt-in tests that reach the internet and move real data.
 
-| Command | What it does |
-| --- | --- |
-| `npm run tauri dev` | Runs the app with hot reload. |
-| `npm test` | Runs every Rust test in the workspace. |
-| `cargo test --workspace -- --include-ignored` | Also runs the opt-in tests that reach the internet (IP Info's public lookup). |
-| `npm run package` | Builds the Windows installer. |
+## Things to know
 
-## Building the installer
-
-```powershell
-npm run package
-```
-
-This produces an unsigned NSIS installer at:
-
-```
-target\release\bundle\nsis\Techbench_<version>_x64-setup.exe
-```
-
-The first run downloads Tauri's NSIS toolchain, so it needs internet access.
-
-## Installing
-
-Run the `-setup.exe`. Because the installer is unsigned, Windows SmartScreen shows a warning the first time: choose **More info → Run anyway**.
-
-- It installs into the signed-in Windows account only, under `%LOCALAPPDATA%\Techbench`, so it needs no Administrator rights and shows no UAC prompt.
-- It adds **Techbench** to the Start menu.
-- If the PC lacks the WebView2 runtime, the installer downloads it silently. Windows 11 already includes it.
-
-To uninstall, use **Settings → Apps → Installed apps → Techbench → Uninstall**.
+- **What it changes on your PC:** nothing system-wide. It does not touch services, the registry or network settings. It writes your Saved Targets to the app's data folder, and an export file only where you choose.
+- **Network traffic it sends:** pings, ARP, DNS and TCP connection tests, and speed tests. Only scan networks you are allowed to scan.
+- **Speed Test and Cloudflare:** Cloudflare publishes no terms for third-party use of its speed endpoints, and its `robots.txt` disallows them. Techbench keeps requests under 100 MB, never posts results back and identifies itself honestly, but this is a grey area. See [ADR 0003](docs/adr/0003-speed-test-uses-cloudflare-public-endpoints.md).
+- **Speed Test and Ookla:** Ookla's licence allows personal, non-commercial use only and uploads each result to Ookla. See [ADR 0004](docs/adr/0004-ookla-speedtest-is-optional-and-user-installed.md).
+- **A Speed Test moves a lot of data:** roughly 0.25 GB on a 100 Mbps line. Techbench asks first on a metered connection.
 
 ## Project layout
 
 | Path | Contents |
 | --- | --- |
-| `crates/toolbox-core/` | Every Tool's behaviour, with no dependency on Tauri or the UI. Tests live here. |
-| `src-tauri/` | The Tauri shell, which exposes the toolbox core to the UI. |
-| `src/` | The React + TypeScript UI. |
+| `crates/toolbox-core/` | Every tool's behaviour, with no dependency on Tauri or the UI. The tests live here. |
+| `src-tauri/` | The Tauri shell that exposes the core to the UI. |
+| `src/` | The React and TypeScript UI. |
+| `docs/` | Architecture decisions (`adr/`) and the design system. |
+| `.scratch/` | The specs and tickets the tools were built from. |
+
+Domain vocabulary is in [CONTEXT.md](CONTEXT.md).
 
 ## Vendor data
 
-LAN Scan names a Device's vendor from the IEEE OUI registry, compiled into the app from `crates/toolbox-core/data/oui.tsv`, so the installer carries it and lookups work offline. To refresh it, run `python scripts/update-oui.py` (needs internet) and rebuild.
+LAN Scan names a device's vendor from the IEEE OUI registry, compiled in from `crates/toolbox-core/data/oui.tsv`, so lookups work offline. To refresh it, run `python scripts/update-oui.py` (needs internet) and rebuild.
+
+## Roadmap
+
+Ideas, not promises, taken from what the specs deliberately left out:
+
+- Show the Wi-Fi link speed and signal in Speed Test results
+- Whois, VLSM subnet splitting, and offline utilities (hash, base64, password)
+- IPv6 LAN Scan, UDP port checks, user-defined port presets
+- A run history and a multi-target monitor with alerts
+- Remote agents, so a tool can run from another machine
+- Signed installers and auto-update
+
+## License
+
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Venuel Rey R. Gallarte.

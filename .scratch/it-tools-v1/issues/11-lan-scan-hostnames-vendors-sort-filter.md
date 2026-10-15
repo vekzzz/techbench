@@ -39,5 +39,5 @@ My choices:
 Deferred: a timed-out reverse lookup frees its slot, but the Windows name lookup behind it keeps its thread until it finishes, so with a dead DNS server more than 16 can be waiting at once (same shape as the `SendARP` note on ticket 10). The filter also matches MAC, which the ticket did not ask for.
 
 **2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
-- On a real scan of 19 Devices: IP order is numeric (`.9` before `.11`); Vendor sort runs CLOUD NETWORK…, Fiberhome…, Google, Intel, NETGEAR, TP-Link, then Devices without a vendor; Hostname sort puts BPSIComplianceS, MAC-D686E6, MACBOOKPRO-54D3 first.
+- On a real scan of 19 Devices: IP order is numeric (`.9` before `.11`); Vendor sort runs CLOUD NETWORK…, Fiberhome…, Google, Intel, NETGEAR, TP-Link, then Devices without a vendor; Hostname sort puts WORKSTATION-A, MAC-A1B2C3, LAPTOP-B first.
 - Filter `tp-link` → 5 TP-Link Devices and "5 of 19 shown"; `macbook` → 192.168.1.19 by hostname; `5C-A6-E6-9A` → 4 by MAC. Sort and filter were still set after visiting Saved Targets and coming back.

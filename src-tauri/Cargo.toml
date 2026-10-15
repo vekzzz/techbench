@@ -2,9 +2,10 @@
 name = "it-tools"
 version = "0.1.0"
 description = "Techbench — a Technician's all-in-one IT toolbox"
-authors = ["Venuel"]
+authors = ["Venuel Rey R. Gallarte"]
 edition = "2024"
 publish = false
+license = "MIT"
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary

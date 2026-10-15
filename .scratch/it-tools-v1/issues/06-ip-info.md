@@ -38,7 +38,7 @@ The shell and UI: `start_ip_info`, `useIpInfo`, and the IP Info screen. It reads
 
 Verified on this PC:
 - Wi-Fi was marked as the default route, with its DHCP lease times.
-- Public: 122.54.201.205 (Philippine Long Distance Telephone Company, Bacolod City).
+- Public: 203.0.113.7 (Example Telecom, Manila).
 - Teredo no longer shows a `::` gateway.
 - The copied text matched the format.
 

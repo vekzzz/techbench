@@ -18,7 +18,7 @@ const SERVER: &str = r#""server":{"id":1,"host":"speedtest.example.net","name":"
 
 fn start() -> String {
     format!(
-        r#"{{"type":"testStart","isp":"PLDT","interface":{{"externalIp":"203.0.113.7"}},{SERVER}}}"#
+        r#"{{"type":"testStart","isp":"Example ISP","interface":{{"externalIp":"203.0.113.7"}},{SERVER}}}"#
     )
 }
 
@@ -28,7 +28,7 @@ const UPLOADING: &str = r#"{"type":"upload","upload":{"bandwidth":5000000,"bytes
 
 fn finished() -> String {
     format!(
-        r#"{{"type":"result","ping":{{"jitter":2.1,"latency":14.5}},"download":{{"bandwidth":28000000,"bytes":280000000,"elapsed":10000,"latency":{{"iqm":40.2,"low":12.0,"high":90.0,"jitter":5.0}}}},"upload":{{"bandwidth":6000000,"bytes":60000000,"elapsed":10000,"latency":{{"iqm":120.5}}}},"isp":"PLDT","interface":{{"externalIp":"203.0.113.7"}},{SERVER},"result":{{"url":"https://www.speedtest.net/result/c/example"}}}}"#
+        r#"{{"type":"result","ping":{{"jitter":2.1,"latency":14.5}},"download":{{"bandwidth":28000000,"bytes":280000000,"elapsed":10000,"latency":{{"iqm":40.2,"low":12.0,"high":90.0,"jitter":5.0}}}},"upload":{{"bandwidth":6000000,"bytes":60000000,"elapsed":10000,"latency":{{"iqm":120.5}}}},"isp":"Example ISP","interface":{{"externalIp":"203.0.113.7"}},{SERVER},"result":{{"url":"https://www.speedtest.net/result/c/example"}}}}"#
     )
 }
 
@@ -77,7 +77,7 @@ async fn the_server_and_public_address_come_from_ookla() {
         header.public,
         Some(Ok(PublicIp {
             address: common::ip("203.0.113.7"),
-            isp: Some("PLDT".to_string()),
+            isp: Some("Example ISP".to_string()),
             city: None,
         }))
     );

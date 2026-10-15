@@ -85,8 +85,8 @@ Header follows IP Info's shape plus the Server:
 Speed Test
 Server:    Cloudflare HKG (104.16.124.96)
 Time:      2026-10-14 14:05:09 +08:00
-PC:        BPSI-VENUEL (192.168.1.23) via Wi-Fi
-Public:    203.177.x.x, PLDT, Makati
+PC:        TECH-PC (10.0.0.23) via Wi-Fi
+Public:    203.0.113.x, Example Telecom, Manila
 ```
 
 Then aligned plain-text rows for latency, jitter, download and upload (with Loaded Latency, Increase Under Load and verdict per direction), the data used, and one summary line. No Markdown. Core-owned and golden-tested like every other Tool.

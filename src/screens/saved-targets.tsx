@@ -13,6 +13,8 @@ const JSON_FILES = [{ name: "JSON", extensions: ["json"] }];
 
 export function SavedTargets() {
   const { targets, error, loaded, load, create, update, remove, draft, setDraft } = useSavedTargets();
+  /** The Saved Target whose Delete was clicked once and now waits for a second click. */
+  const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
   const [form, setForm] = useState<SavedTargetInput>(EMPTY);
   /** The Saved Target being edited; null when the form adds a new one. */
   const [editing, setEditing] = useState<number | null>(null);
@@ -165,12 +167,20 @@ export function SavedTargets() {
                       type="button"
                       size="xs"
                       variant="ghost"
+                      className={confirmingDelete === saved.id ? "text-danger" : undefined}
+                      onBlur={() => setConfirmingDelete((current) => (current === saved.id ? null : current))}
                       onClick={() => {
+                        // The first click asks; the second, on the same row, deletes.
+                        if (confirmingDelete !== saved.id) {
+                          setConfirmingDelete(saved.id);
+                          return;
+                        }
+                        setConfirmingDelete(null);
                         if (editing === saved.id) reset();
                         void remove(saved.id).catch((reason) => setFormError(String(reason)));
                       }}
                     >
-                      Delete
+                      {confirmingDelete === saved.id ? "Confirm delete" : "Delete"}
                     </Button>
                   </div>
                 </td>

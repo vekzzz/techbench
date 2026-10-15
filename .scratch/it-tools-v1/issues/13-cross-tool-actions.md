@@ -35,6 +35,6 @@ Spec: user stories 24, 25; Implementation Decisions › UI.
 **2026-10-14 — GUI check (Claude).** Checked in the running app on 2026-10-14: the dev build (UI served by vite) driven through WebView2's DevTools protocol, so clicks and typing went into the app's own page, never another window; results read from the page, screenshots from the page, Copy checked on the Windows clipboard.
 - Menus: Device and Hop offer Ping, Continuous Ping, Traceroute, Port Check, DNS Lookup, Save as Target; a Saved Target offers the first five. Silent Hops (`*`) have no menu.
 - Device 192.168.1.1 → Ping: Ping screen in Once mode, field filled, 4 echoes running. Device → Traceroute: "Reached 192.168.1.23 in 1 hop". Saved Target 8.8.8.8 → Port Check with no ports typed: "enter at least one port…", as for a typed Target; with `443, 53` typed it ran (2 Open).
-- Hop 122.54.193.115 → DNS Lookup: asked `115.193.54.122.in-addr.arpa`, PTR `122.54.193.115.pldt.net`.
+- Hop 203.0.113.9 → DNS Lookup: asked `9.113.0.203.in-addr.arpa`, PTR `203.0.113.9.example-isp.net`.
 - Continuous Ping from three Devices filled the three slots, all running; a fourth showed "Three Continuous Pings are already running. Stop one first, then try again."
-- Save as Target from 192.168.1.19 opened Saved Targets with label `MACBOOKPRO-54D3`; from a Device without a hostname the label was empty.
+- Save as Target from 192.168.1.19 opened Saved Targets with label `LAPTOP-B`; from a Device without a hostname the label was empty.

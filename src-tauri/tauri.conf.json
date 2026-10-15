@@ -26,8 +26,8 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "publisher": "Venuel",
-    "shortDescription": "Network diagnostics toolbox for IT Technicians",
+    "publisher": "Venuel Rey R. Gallarte",
+    "shortDescription": "All-in-one IT toolbox for support technicians",
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
       "nsis": {

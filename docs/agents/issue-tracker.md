@@ -1,30 +1,28 @@
-# Issue tracker: Local Markdown
+# Issue tracker: GitHub
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as GitHub issues in [vekzzz/techbench](https://github.com/vekzzz/techbench), worked with the `gh` CLI. The existing specs and tickets from before the move stay in `.scratch/` as history.
 
 ## Conventions
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The spec is `.scratch/<feature-slug>/spec.md`
-- Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file, and the category role (`bug` or `enhancement`) as a `Category:` line directly below it (see `triage-labels.md` for the role strings)
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- One feature per spec issue; its implementation tickets are separate issues that link to it.
+- Triage state is a GitHub label (see `triage-labels.md`); the category role is the `bug` or `enhancement` label.
+- Blocking is written in the issue body as `Blocked by: #12, #14`. A ticket is unblocked when every issue it lists is closed.
+- Comments and conversation history are ordinary issue comments.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create an issue: `gh issue create --repo vekzzz/techbench --title "<title>" --body-file <file> --label <labels>`.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+`gh issue view <number> --repo vekzzz/techbench --comments`. The user will normally pass the number.
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
+Used by `/wayfinder`. The **map** is a pinned issue with the Notes / Decisions-so-far / Fog body; each **child** ticket is an issue.
 
-- **Map**: `.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
-- **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
-- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
-- **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
-- **Claim**: set `Status: claimed` and save before any work.
-- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+- **Map**: an issue titled `Map: <effort>`, labelled `map`.
+- **Child ticket**: an issue whose body holds the question, with a `Type: research|prototype|grilling|task` line, and `Blocked by:` as above.
+- **Frontier**: open, unblocked, unclaimed child issues; lowest number first.
+- **Claim**: add the `claimed` label before any work.
+- **Resolve**: comment the answer under an `## Answer` heading, close the issue, then add a pointer (gist and link) to the map's Decisions-so-far.
