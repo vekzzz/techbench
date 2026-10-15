@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { FamilyToggle } from "@/components/family-toggle";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,12 +12,6 @@ import {
 import { Input } from "@/components/ui/input";
 import type { AddressFamily } from "@/lib/toolbox";
 import { useSavedTargets } from "@/store";
-
-const FAMILIES: { value: AddressFamily; label: string }[] = [
-  { value: "auto", label: "Auto" },
-  { value: "ipv4", label: "IPv4" },
-  { value: "ipv6", label: "IPv6" },
-];
 
 /** The Target field every Tool that takes a Target uses, with its Saved Targets picker and IP version toggle. */
 export function TargetInput({
@@ -104,23 +99,7 @@ export function TargetInput({
         >
           Save
         </Button>
-        {family !== undefined && onFamilyChange && (
-          <div role="radiogroup" aria-label="IP version" className="flex shrink-0 rounded-md border p-0.5">
-            {FAMILIES.map((option) => (
-              <Button
-                key={option.value}
-                type="button"
-                size="xs"
-                role="radio"
-                aria-checked={family === option.value}
-                variant={family === option.value ? "secondary" : "ghost"}
-                onClick={() => onFamilyChange(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-        )}
+        {family !== undefined && onFamilyChange && <FamilyToggle family={family} onChange={onFamilyChange} />}
       </div>
       {saving && (
         <div className="flex flex-col gap-1">

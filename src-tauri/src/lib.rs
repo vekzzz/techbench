@@ -8,6 +8,7 @@ mod ping;
 mod port_check;
 mod runs;
 mod saved_targets;
+mod speed_test;
 mod subnet;
 mod traceroute;
 
@@ -41,6 +42,9 @@ pub fn run() {
             port_check::port_presets,
             port_check::start_port_check,
             traceroute::start_traceroute,
+            speed_test::ookla_installed,
+            speed_test::speed_test_cost_warning,
+            speed_test::start_speed_test,
             saved_targets::list_saved_targets,
             saved_targets::create_saved_target,
             saved_targets::update_saved_target,

@@ -223,7 +223,7 @@ fn read_file(path: &Path) -> Result<Vec<SavedTarget>, InputError> {
     })?;
     if shape.version > FORMAT_VERSION {
         return Err(InputError::new(format!(
-            "{} was made by a newer version of IT Tools (file format {}, this one reads up to {FORMAT_VERSION})",
+            "{} was made by a newer version of Techbench (file format {}, this one reads up to {FORMAT_VERSION})",
             path.display(),
             shape.version
         )));

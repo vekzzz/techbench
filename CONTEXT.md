@@ -1,4 +1,4 @@
-# IT Tools
+# Techbench
 
 A personal toolbox of network diagnostics that a Technician runs from their own Windows PC. Every Tool executes locally on that PC; nothing runs on remote machines.
 
@@ -7,7 +7,7 @@ A personal toolbox of network diagnostics that a Technician runs from their own 
 ### People
 
 **Technician**:
-The IT person operating IT Tools from their own PC.
+The IT person operating Techbench from their own PC.
 _Avoid_: User, admin, operator
 
 ### Targets
@@ -99,3 +99,23 @@ _Avoid_: My IP, ipconfig
 **Subnet Calculator**:
 A Tool that derives network, broadcast, mask and usable range from an address and prefix. It sends no traffic.
 _Avoid_: CIDR calculator, IP calculator
+
+**Speed Test**:
+A Tool that measures the internet line from the Technician's PC: download speed, upload speed, latency and jitter, and how much latency grows under load. It runs without a Target. "Speed Test" names the Tool; one execution of it is still a Run.
+_Avoid_: Speedtest, bandwidth test, "a test" (for a Run)
+
+**Speed Test Server**:
+The public server a Speed Test Run measured against, named by its location code (e.g. Cloudflare HKG) and the IP address used.
+_Avoid_: Target (a Speed Test has none)
+
+**Loaded Latency**:
+Latency measured while a Speed Test is saturating the line in one direction, reported separately for download and upload.
+_Avoid_: Latency under load, ping under load
+
+**Rating**:
+How many stars (1 to 5) a Speed Test gives the connection for one use case (Web Browsing, Streaming, Gaming, Video Calls): the lowest of the stars its figures earn. Not rated when a figure it needs was not measured.
+_Avoid_: Score, grade
+
+**Increase Under Load**:
+Loaded Latency minus idle latency, for one direction. A Speed Test grades it Low (under 30 ms), Moderate (30–100 ms) or High (over 100 ms); a High increase is the bufferbloat signature.
+_Avoid_: Bufferbloat score, grade

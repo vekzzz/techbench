@@ -1,4 +1,4 @@
-# IT Tools
+# Techbench
 
 A Windows toolbox of network diagnostics for an IT Technician. Every Tool runs locally on the Technician's own PC, without Administrator rights.
 
@@ -39,7 +39,7 @@ npm run package
 This produces an unsigned NSIS installer at:
 
 ```
-target\release\bundle\nsis\IT Tools_<version>_x64-setup.exe
+target\release\bundle\nsis\Techbench_<version>_x64-setup.exe
 ```
 
 The first run downloads Tauri's NSIS toolchain, so it needs internet access.
@@ -48,11 +48,11 @@ The first run downloads Tauri's NSIS toolchain, so it needs internet access.
 
 Run the `-setup.exe`. Because the installer is unsigned, Windows SmartScreen shows a warning the first time: choose **More info → Run anyway**.
 
-- It installs into the signed-in Windows account only, under `%LOCALAPPDATA%\IT Tools`, so it needs no Administrator rights and shows no UAC prompt.
-- It adds **IT Tools** to the Start menu.
+- It installs into the signed-in Windows account only, under `%LOCALAPPDATA%\Techbench`, so it needs no Administrator rights and shows no UAC prompt.
+- It adds **Techbench** to the Start menu.
 - If the PC lacks the WebView2 runtime, the installer downloads it silently. Windows 11 already includes it.
 
-To uninstall, use **Settings → Apps → Installed apps → IT Tools → Uninstall**.
+To uninstall, use **Settings → Apps → Installed apps → Techbench → Uninstall**.
 
 ## Project layout
 

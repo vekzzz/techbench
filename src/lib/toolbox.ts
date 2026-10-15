@@ -406,3 +406,94 @@ export function exportSavedTargets(path: string): Promise<void> {
 export function importSavedTargets(path: string): Promise<{ added: number; skipped: number }> {
   return invoke("import_saved_targets", { path });
 }
+
+export type SpeedPhase = "latency" | "download" | "upload";
+
+/** Which way a transfer moves data. */
+export type SpeedDirection = "download" | "upload";
+
+export type SpeedTestServer = {
+  provider: string;
+  /** The provider's location code, such as HKG. */
+  location: string;
+  address: string | null;
+};
+
+export type SpeedTestEnding = "running" | "completed" | "stopped" | "noInternet" | "rateLimited" | "interrupted" | "unavailable";
+
+/** One direction's figures: its speed, and how latency behaved while it ran. */
+export type DirectionResult = {
+  mbps: number | null;
+  /** Whole percentage of the plan's speed, when the Technician gave one. */
+  planPercent: number | null;
+  loadedLatencyMs: number | null;
+  increaseMs: number | null;
+  verdict: "Low" | "Moderate" | "High" | null;
+};
+
+export type UseCaseRating = {
+  useCase: string;
+  /** 1 to 5; null when a figure it needs was not measured. */
+  stars: number | null;
+};
+
+export type SpeedTestResult = {
+  server: SpeedTestServer | null;
+  /** This PC's name, with the address its internet traffic leaves from and the Adapter it used. */
+  pc: string;
+  public: string;
+  publicFailed: boolean;
+  latencyMedianMs: number | null;
+  jitterMs: number | null;
+  download: DirectionResult;
+  upload: DirectionResult;
+  ratings: UseCaseRating[];
+  dataUsedBytes: number;
+  ending: SpeedTestEnding;
+  /** The one-line conclusion, worded by the toolbox core. */
+  summary: string;
+  /** The Result as plain text, ready to paste into a ticket. */
+  text: string;
+};
+
+/** The speed a transfer carried over one second of a phase. */
+export type SpeedSample = { phase: SpeedPhase; atSeconds: number; mbps: number };
+
+/** A latency probe sent while a transfer was saturating the line. */
+export type LoadedProbe = { direction: SpeedDirection; atSeconds: number; latencyMs: number };
+
+export type SpeedTestUpdate =
+  | { kind: "phase"; phase: SpeedPhase }
+  | { kind: "server"; server: SpeedTestServer }
+  | { kind: "latency"; medianMs: number; jitterMs: number }
+  | ({ kind: "loadedProbe" } & LoadedProbe)
+  | ({ kind: "sample" } & SpeedSample)
+  | { kind: "finished"; result: SpeedTestResult };
+
+/** The plan speeds are Mbps as typed, blank for none; the toolbox core validates them. */
+/** Who measures the line: Cloudflare's public endpoints, or Ookla's own speedtest.exe if installed. */
+export type SpeedProvider = "cloudflare" | "ookla";
+
+export type SpeedTestInput = {
+  family: AddressFamily;
+  provider: SpeedProvider;
+  planDownload: string;
+  planUpload: string;
+};
+
+/** Whether Ookla's speedtest.exe is installed, so it can be offered. */
+export function ooklaInstalled(): Promise<boolean> {
+  return invoke("ookla_installed");
+}
+
+/** Why starting needs confirming (a metered, roaming or over-limit connection); null to just start. */
+export function speedTestCostWarning(): Promise<string | null> {
+  return invoke("speed_test_cost_warning");
+}
+
+/** Starts a Speed Test Run. Rejects with a message, before any Run starts, when a plan speed is invalid. */
+export function startSpeedTest(input: SpeedTestInput, onUpdate: (update: SpeedTestUpdate) => void): Promise<{ id: RunId }> {
+  const channel = new Channel<SpeedTestUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke("start_speed_test", { input, onUpdate: channel });
+}

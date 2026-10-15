@@ -1,7 +1,7 @@
 [package]
 name = "it-tools"
 version = "0.1.0"
-description = "IT Tools — a Technician's network diagnostics toolbox"
+description = "Techbench — a Technician's all-in-one IT toolbox"
 authors = ["Venuel"]
 edition = "2024"
 publish = false

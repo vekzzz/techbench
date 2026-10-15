@@ -1,4 +1,4 @@
-# IT Tools
+# Techbench
 
 Personal Windows toolbox of network diagnostics for an IT Technician. Domain language lives in `CONTEXT.md`; architectural decisions in `docs/adr/`.
 

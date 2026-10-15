@@ -4,15 +4,26 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 use std::collections::VecDeque;
 
 use toolbox_core::network::{
-    Adapter, ConnectOutcome, DnsAnswer, DnsReply, EchoOutcome, EchoRequest, Network, PublicIp,
-    RecordType, ResolveError,
+    Adapter, ConnectOutcome, ConnectionCost, DnsAnswer, DnsReply, EchoOutcome, EchoRequest,
+    Network, OoklaFailure, PublicIp, RecordType, ResolveError, SpeedFailure, SpeedProbe,
 };
+use toolbox_core::target::AddressFamily;
+
+/// Counts a transfer as in flight until it finishes or is dropped.
+struct InFlight<'a>(&'a AtomicUsize);
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 pub const PC_NAME: &str = "TECH-PC";
 pub const PC_ADDRESS: &str = "10.0.0.23";
@@ -54,6 +65,14 @@ pub enum EchoScript {
     Hang,
 }
 
+/// How the fake answers a run of Ookla's `speedtest.exe`.
+pub enum OoklaScript {
+    /// Prints these lines, then exits as `exit` says.
+    Lines(Vec<String>, Result<(), OoklaFailure>),
+    /// Prints these lines, then never finishes, so only stopping the Run ends it.
+    Hang(Vec<String>),
+}
+
 pub struct FakeNetwork {
     names: HashMap<String, NameScript>,
     connects: HashMap<SocketAddr, ConnectScript>,
@@ -76,6 +95,26 @@ pub struct FakeNetwork {
     route_source: Option<IpAddr>,
     /// None: the lookup never answers, so only stopping the Run ends it.
     public_ip: Option<Result<PublicIp, String>>,
+    /// What successive speed probes answer, in order.
+    probes: Mutex<VecDeque<Result<SpeedProbe, SpeedFailure>>>,
+    /// Megabits per second each speed download connection carries; None: not scripted.
+    download_mbps_per_connection: Option<u64>,
+    download_requests: Mutex<Vec<u64>>,
+    /// Megabits per second each speed upload connection carries; None: not scripted.
+    upload_mbps_per_connection: Option<u64>,
+    upload_requests: Mutex<Vec<u64>>,
+    /// A failure every speed download ends with after its first step.
+    download_failure: Option<SpeedFailure>,
+    downloads_now: AtomicUsize,
+    downloads_peak: AtomicUsize,
+    uploads_now: AtomicUsize,
+    /// Round trips of probes sent while a download / an upload is in flight.
+    loaded_round_trips: (Option<Duration>, Option<Duration>),
+    last_probe: Mutex<Option<SpeedProbe>>,
+    connection_cost: ConnectionCost,
+    ookla: Option<OoklaScript>,
+    /// The address family of every speed probe and download, in order.
+    speed_families: Mutex<Vec<AddressFamily>>,
 }
 
 impl FakeNetwork {
@@ -98,6 +137,20 @@ impl FakeNetwork {
             adapters: Vec::new(),
             route_source: Some(ip(PC_ADDRESS)),
             public_ip: Some(Err("no public lookup scripted".to_string())),
+            probes: Mutex::new(VecDeque::new()),
+            download_mbps_per_connection: None,
+            download_requests: Mutex::new(Vec::new()),
+            upload_mbps_per_connection: None,
+            upload_requests: Mutex::new(Vec::new()),
+            download_failure: None,
+            downloads_now: AtomicUsize::new(0),
+            downloads_peak: AtomicUsize::new(0),
+            uploads_now: AtomicUsize::new(0),
+            loaded_round_trips: (None, None),
+            last_probe: Mutex::new(None),
+            connection_cost: ConnectionCost::Unmetered,
+            ookla: None,
+            speed_families: Mutex::new(Vec::new()),
         }
     }
 
@@ -121,6 +174,97 @@ impl FakeNetwork {
     pub fn with_hanging_public_ip(mut self) -> Self {
         self.public_ip = None;
         self
+    }
+
+    /// Successive speed probes answer as scripted, each taking its round trip.
+    pub fn with_probes(self, probes: impl IntoIterator<Item = SpeedProbe>) -> Self {
+        self.probes
+            .lock()
+            .unwrap()
+            .extend(probes.into_iter().map(Ok));
+        self
+    }
+
+    /// Every speed download connection carries `mbps` megabits per second, in 100 ms steps.
+    pub fn with_download_rate(mut self, mbps_per_connection: u64) -> Self {
+        self.download_mbps_per_connection = Some(mbps_per_connection);
+        self
+    }
+
+    /// Every speed upload connection carries `mbps` megabits per second, in 100 ms steps.
+    pub fn with_upload_rate(mut self, mbps_per_connection: u64) -> Self {
+        self.upload_mbps_per_connection = Some(mbps_per_connection);
+        self
+    }
+
+    /// The size of every speed upload request made, in order.
+    pub fn upload_requests(&self) -> Vec<u64> {
+        self.upload_requests.lock().unwrap().clone()
+    }
+
+    /// Probes sent while a download (or an upload) is in flight take these round trips.
+    pub fn with_loaded_round_trips(mut self, download: Duration, upload: Duration) -> Self {
+        self.loaded_round_trips = (Some(download), Some(upload));
+        self
+    }
+
+    /// Ookla's `speedtest.exe` is installed and prints these lines, then exits cleanly.
+    pub fn with_ookla(mut self, lines: &[&str]) -> Self {
+        self.ookla = Some(OoklaScript::Lines(
+            lines.iter().map(|l| l.to_string()).collect(),
+            Ok(()),
+        ));
+        self
+    }
+
+    /// Ookla's `speedtest.exe` prints these lines and then fails like this.
+    pub fn with_ookla_failing(mut self, lines: &[&str], failure: OoklaFailure) -> Self {
+        self.ookla = Some(OoklaScript::Lines(
+            lines.iter().map(|l| l.to_string()).collect(),
+            Err(failure),
+        ));
+        self
+    }
+
+    /// Ookla's `speedtest.exe` prints these lines and then hangs.
+    pub fn with_ookla_hanging(mut self, lines: &[&str]) -> Self {
+        self.ookla = Some(OoklaScript::Hang(
+            lines.iter().map(|l| l.to_string()).collect(),
+        ));
+        self
+    }
+
+    /// What Windows says the internet connection costs.
+    pub fn with_connection_cost(mut self, cost: ConnectionCost) -> Self {
+        self.connection_cost = cost;
+        self
+    }
+
+    /// The next speed probe fails like this instead of answering.
+    pub fn with_probe_failure(self, failure: SpeedFailure) -> Self {
+        self.probes.lock().unwrap().push_back(Err(failure));
+        self
+    }
+
+    /// Every speed download fails like this after its first 100 ms step.
+    pub fn with_download_failure(mut self, failure: SpeedFailure) -> Self {
+        self.download_failure = Some(failure);
+        self
+    }
+
+    /// The address family each speed probe and download was asked to use.
+    pub fn speed_families(&self) -> Vec<AddressFamily> {
+        self.speed_families.lock().unwrap().clone()
+    }
+
+    /// The size of every speed download request made, in order.
+    pub fn download_requests(&self) -> Vec<u64> {
+        self.download_requests.lock().unwrap().clone()
+    }
+
+    /// The most speed downloads that were ever in flight at once.
+    pub fn peak_downloads(&self) -> usize {
+        self.downloads_peak.load(Ordering::SeqCst)
     }
 
     /// `address` answers successive echoes as scripted, in order.
@@ -389,6 +533,124 @@ impl Network for FakeNetwork {
             Some(lookup) => lookup.clone(),
             None => std::future::pending().await,
         }
+    }
+
+    async fn speed_probe(&self, family: AddressFamily) -> Result<SpeedProbe, SpeedFailure> {
+        self.speed_families.lock().unwrap().push(family);
+        let scripted = self.probes.lock().unwrap().pop_front();
+        let answer = match scripted {
+            Some(answer) => answer,
+            None => {
+                // Past the scripted probes, a probe sent under load takes the scripted loaded
+                // round trip; otherwise the last answer repeats.
+                let mut probe = self
+                    .last_probe
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .expect("test did not script a speed probe");
+                let loaded = if self.downloads_now.load(Ordering::SeqCst) > 0 {
+                    self.loaded_round_trips.0
+                } else if self.uploads_now.load(Ordering::SeqCst) > 0 {
+                    self.loaded_round_trips.1
+                } else {
+                    None
+                };
+                if let Some(round_trip) = loaded {
+                    probe.round_trip = round_trip;
+                    probe.server_time = Duration::ZERO;
+                }
+                Ok(probe)
+            }
+        };
+        if let Ok(probe) = &answer {
+            *self.last_probe.lock().unwrap() = Some(probe.clone());
+            tokio::time::sleep(probe.round_trip).await;
+        }
+        answer
+    }
+
+    async fn speed_download(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        received: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<(), SpeedFailure> {
+        let mbps = self
+            .download_mbps_per_connection
+            .expect("test did not script a download rate");
+        self.speed_families.lock().unwrap().push(family);
+        self.download_requests.lock().unwrap().push(bytes);
+        let now = self.downloads_now.fetch_add(1, Ordering::SeqCst) + 1;
+        self.downloads_peak.fetch_max(now, Ordering::SeqCst);
+        let _in_flight = InFlight(&self.downloads_now);
+
+        let per_step = mbps * 1_000_000 / 8 / 10;
+        let mut left = bytes;
+        while left > 0 {
+            tokio::time::sleep(ms(100)).await;
+            let chunk = per_step.min(left);
+            received(chunk);
+            left -= chunk;
+            if let Some(failure) = &self.download_failure {
+                return Err(failure.clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn speed_upload(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        sent: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<(), SpeedFailure> {
+        let mbps = self
+            .upload_mbps_per_connection
+            .expect("test did not script an upload rate");
+        self.speed_families.lock().unwrap().push(family);
+        self.upload_requests.lock().unwrap().push(bytes);
+        self.uploads_now.fetch_add(1, Ordering::SeqCst);
+        let _in_flight = InFlight(&self.uploads_now);
+        let per_step = mbps * 1_000_000 / 8 / 10;
+        let mut left = bytes;
+        while left > 0 {
+            tokio::time::sleep(ms(100)).await;
+            let chunk = per_step.min(left);
+            sent(chunk);
+            left -= chunk;
+        }
+        Ok(())
+    }
+
+    async fn ookla_installed(&self) -> bool {
+        self.ookla.is_some()
+    }
+
+    async fn ookla_run(
+        &self,
+        on_line: &(dyn Fn(String) + Send + Sync),
+    ) -> Result<(), OoklaFailure> {
+        match &self.ookla {
+            None => Err(OoklaFailure::NotInstalled),
+            Some(OoklaScript::Lines(lines, exit)) => {
+                for line in lines {
+                    tokio::time::sleep(ms(100)).await;
+                    on_line(line.clone());
+                }
+                exit.clone()
+            }
+            Some(OoklaScript::Hang(lines)) => {
+                for line in lines {
+                    on_line(line.clone());
+                }
+                std::future::pending().await
+            }
+        }
+    }
+
+    async fn connection_cost(&self) -> ConnectionCost {
+        self.connection_cost
     }
 
     fn source_address(&self, _destination: IpAddr) -> Option<IpAddr> {

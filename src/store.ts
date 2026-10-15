@@ -325,3 +325,61 @@ export const useSavedTargets = create<SavedTargetsState>((set, get) => ({
   draft: null,
   setDraft: (draft) => set({ draft }),
 }));
+
+/** A Speed Test Run as the UI follows it: phase by phase, with the speed each second. */
+export type SpeedTestRun = {
+  key: number;
+  id: toolbox.RunId | null;
+  phase: toolbox.SpeedPhase | null;
+  server: toolbox.SpeedTestServer | null;
+  latency: { medianMs: number; jitterMs: number } | null;
+  samples: toolbox.SpeedSample[];
+  loadedProbes: toolbox.LoadedProbe[];
+  result: toolbox.SpeedTestResult | null;
+};
+
+// The plan speeds stay until the app closes; they are never written to disk.
+const speedTestInput: toolbox.SpeedTestInput = {
+  family: "auto",
+  provider: "cloudflare",
+  planDownload: "",
+  planUpload: "",
+};
+
+export const useSpeedTest = createRunStore({
+  input: speedTestInput,
+  begin: (key): SpeedTestRun => ({
+    key,
+    id: null,
+    phase: null,
+    server: null,
+    latency: null,
+    samples: [],
+    loadedProbes: [],
+    result: null,
+  }),
+  start: toolbox.startSpeedTest,
+  accepted: (run, started) => ({ ...run, id: started.id }),
+  apply: (run, update: toolbox.SpeedTestUpdate) => {
+    switch (update.kind) {
+      case "phase":
+        return { ...run, phase: update.phase };
+      case "server":
+        return { ...run, server: update.server };
+      case "latency":
+        return { ...run, latency: { medianMs: update.medianMs, jitterMs: update.jitterMs } };
+      case "sample":
+        return { ...run, samples: [...run.samples, { phase: update.phase, atSeconds: update.atSeconds, mbps: update.mbps }] };
+      case "loadedProbe":
+        return {
+          ...run,
+          loadedProbes: [
+            ...run.loadedProbes,
+            { direction: update.direction, atSeconds: update.atSeconds, latencyMs: update.latencyMs },
+          ],
+        };
+      case "finished":
+        return { ...run, result: update.result };
+    }
+  },
+});

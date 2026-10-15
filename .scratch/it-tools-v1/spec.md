@@ -24,7 +24,7 @@ IT Tools is a small Windows desktop app that puts seven Tools in one window: Pin
 5. As a Technician, I want the app to open without a UAC prompt, so that launching it is as quick as opening a command prompt.
 6. As a Technician, I want a dark theme by default with a light-theme toggle, so that it is comfortable in a dim server room and readable on a projector.
 7. As a Technician, I want addresses, ports and Results shown in a monospace font, so that columns line up and digits are easy to compare.
-8. As a Technician, I want every Tool except IP Info's public lookup to work with no internet connection, so that I can diagnose isolated or broken networks.
+8. As a Technician, I want every Tool except IP Info's public lookup (and the later Speed Test) to work with no internet connection, so that I can diagnose isolated or broken networks.
 9. As a Technician, I want to install the app from a single Windows installer, so that I can set it up on a new PC in a minute.
 10. As a Technician, I want every Run to be stoppable, so that I am never stuck waiting on a long scan or trace.
 
@@ -186,7 +186,7 @@ IT Tools is a small Windows desktop app that puts seven Tools in one window: Pin
   - Printing: 9100, 631, 515
   - A static table maps well-known ports to service name hints.
 - **LAN Scan**: IPv4 only. The default range is the IPv4 network of the adapter carrying the default route. Ranges accept CIDR or start–end. Size policy: up to 1,024 addresses runs freely; 1,025 to 65,536 requires confirmation; more is refused. Network and broadcast addresses are skipped. 64 addresses probed concurrently. For addresses on the Technician's own subnet, ARP and ICMP run together and a Device exists if either answers; elsewhere ICMP only. Hostname comes from reverse lookup only. Vendor comes from a bundled copy of the IEEE OUI registry, matched on the MAC prefix. A Device with an ARP answer but no echo reply is flagged "no ping reply".
-- **IP Info**: per adapter: name, up/down, IPv4/IPv6 with prefixes, gateway, DNS servers, MAC, DHCP enabled, lease obtained/expires. Active adapters first. The public lookup is the app's only external call; its failure does not block local details.
+- **IP Info**: per adapter: name, up/down, IPv4/IPv6 with prefixes, gateway, DNS servers, MAC, DHCP enabled, lease obtained/expires. Active adapters first. The public lookup is an external call, allowed because IP Info's subject is the internet; Tools whose subject is not the internet make none (Speed Test, specified separately, is the other exception). Its failure does not block local details.
 - **Subnet Calculator**: accepts `address/prefix` or address plus dotted mask; outputs network, broadcast, first/last usable, usable count, prefix, dotted mask, wildcard; a contains-check for a second address. /31 yields two usable addresses and no broadcast; /32 yields one. IPv6 outputs network, prefix, first/last address and address count (no broadcast or wildcard).
 
 ### Tauri shell
@@ -230,7 +230,8 @@ IT Tools is a small Windows desktop app that puts seven Tools in one window: Pin
 - Wake-on-LAN and a MAC field on Saved Targets.
 - A persistent Run history log.
 - A multi-Target monitor dashboard with alerts.
-- Whois, speedtest, VLSM subnet splitting, and offline utilities (password, hash, base64 and similar).
+- Whois, VLSM subnet splitting, and offline utilities (password, hash, base64 and similar).
+- Speed Test is not part of v1; it is specified separately in [.scratch/speed-test/spec.md](../speed-test/spec.md), which also relaxes the "only external call" rule below for Tools whose subject is the internet.
 - UDP port checks and user-defined Port Presets.
 - IPv6 LAN Scan, and hostname discovery beyond reverse DNS (NetBIOS, mDNS, LLMNR).
 - Saved Target groups or tags.

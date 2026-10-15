@@ -12,7 +12,7 @@
       />
     </dependentAssembly>
   </dependency>
-  <!-- IT Tools runs without Administrator rights (ADR 0002), so launching it never shows a UAC prompt. -->
+  <!-- Techbench runs without Administrator rights (ADR 0002), so launching it never shows a UAC prompt. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

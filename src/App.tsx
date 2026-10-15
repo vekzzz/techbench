@@ -19,6 +19,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Logo } from "@/components/logo";
 import { useTheme } from "@/hooks/use-theme";
 import { ComingSoon } from "@/screens/coming-soon";
 import { DnsLookup } from "@/screens/dns-lookup";
@@ -27,6 +28,7 @@ import { LanScan } from "@/screens/lan-scan";
 import { Ping } from "@/screens/ping";
 import { PortCheck } from "@/screens/port-check";
 import { SavedTargets } from "@/screens/saved-targets";
+import { SpeedTest } from "@/screens/speed-test";
 import { SubnetCalculator } from "@/screens/subnet-calculator";
 import { Traceroute } from "@/screens/traceroute";
 import { useAppStore } from "@/store";
@@ -37,16 +39,22 @@ function App() {
 
   return (
     <TooltipProvider>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-xs focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
           <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
-            <h1 className="text-sm font-medium">{screen.name}</h1>
+            <h1 className="text-sm font-semibold tracking-tight">{screen.name}</h1>
             <span className="truncate text-xs text-muted-foreground">{screen.summary}</span>
           </header>
-          <main className="flex-1 overflow-auto p-6">
+          <main id="main" className="flex-1 overflow-auto px-8 py-8">
             <Notice />
             <ScreenContent screen={screen} />
           </main>
@@ -85,6 +93,8 @@ function ScreenContent({ screen }: { screen: Screen }) {
       return <IpInfo />;
     case "port-check":
       return <PortCheck />;
+    case "speed-test":
+      return <SpeedTest />;
     case "lan-scan":
       return <LanScan />;
     case "saved-targets":
@@ -100,7 +110,10 @@ function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="px-2 py-1 text-sm font-semibold group-data-[collapsible=icon]:hidden">IT Tools</div>
+        <div className="flex items-center gap-2.5 px-2 py-1.5">
+          <Logo className="size-6 shrink-0" />
+          <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">Techbench</span>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

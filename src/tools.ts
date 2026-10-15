@@ -2,6 +2,7 @@ import {
   Activity01Icon,
   Bookmark01Icon,
   Calculator01Icon,
+  DashboardSpeed01Icon,
   InformationCircleIcon,
   Plug01Icon,
   Radar01Icon,
@@ -16,9 +17,10 @@ export type ToolId =
   | "port-check"
   | "lan-scan"
   | "ip-info"
+  | "speed-test"
   | "subnet-calculator";
 
-/** Everything the sidebar can show: the seven Tools plus Saved Targets. */
+/** Everything the sidebar can show: the Tools plus Saved Targets. */
 export type ScreenId = ToolId | "saved-targets";
 
 export type Screen = {
@@ -35,6 +37,7 @@ export const TOOLS: Screen[] = [
   { id: "port-check", name: "Port Check", summary: "Whether TCP ports on a Target accept connections.", icon: Plug01Icon },
   { id: "lan-scan", name: "LAN Scan", summary: "Discover the Devices present in an address range.", icon: Radar01Icon },
   { id: "ip-info", name: "IP Info", summary: "This PC's adapters and public address.", icon: InformationCircleIcon },
+  { id: "speed-test", name: "Speed Test", summary: "Latency, download speed and how much latency grows under load.", icon: DashboardSpeed01Icon },
   { id: "subnet-calculator", name: "Subnet Calculator", summary: "Network, broadcast, masks and usable range.", icon: Calculator01Icon },
 ];
 

@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, FixedOffset, Local};
 use tokio::net::TcpSocket;
 
+use crate::target::AddressFamily;
+
 /// What happened when a TCP connection was attempted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectOutcome {
@@ -190,6 +192,60 @@ pub struct ResolveError {
     pub message: String,
 }
 
+/// What Windows says the internet connection costs to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionCost {
+    Unmetered,
+    /// A data cap or per-use charge applies, such as a phone hotspot or a capped mobile line.
+    Metered,
+    Roaming,
+    /// The data limit the Technician set in Windows has been passed.
+    OverLimit,
+    /// Windows could not say, for instance because there is no connection.
+    Unknown,
+}
+
+/// Why Ookla's `speedtest.exe` could not produce a result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OoklaFailure {
+    /// The Technician has not installed Ookla's program.
+    NotInstalled,
+    /// It ran and failed, or could not start; `message` is what it said, such as a licence prompt.
+    Failed { message: String },
+}
+
+/// The public server a Speed Test measures against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpeedTestServer {
+    /// Who runs the server, such as `Cloudflare`.
+    pub provider: String,
+    /// Where the server is, as its provider names it: Cloudflare's three-letter code such as `HKG`.
+    pub location: String,
+    /// The address the requests went to, when the system could say.
+    pub address: Option<IpAddr>,
+}
+
+/// One empty request to a Speed Test Server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpeedProbe {
+    /// From sending the request until the answer began to arrive.
+    pub round_trip: Duration,
+    /// How much of the round trip the server says it spent itself.
+    pub server_time: Duration,
+    pub server: SpeedTestServer,
+}
+
+/// Why a request to a Speed Test Server did not complete.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpeedFailure {
+    /// The server could not be reached at all: no route, no DNS, no connection, no answer in time.
+    Unreachable,
+    /// The server asked the Technician to wait.
+    RateLimited { retry_after: Option<Duration> },
+    /// The connection was made but broke or was refused part-way.
+    Interrupted { reason: String },
+}
+
 pub trait Network: Send + Sync {
     /// Resolves a hostname through the system resolver, in the order the system returns its addresses.
     fn resolve(
@@ -235,9 +291,51 @@ pub trait Network: Send + Sync {
     /// This PC's network adapters.
     fn adapters(&self) -> impl Future<Output = Vec<Adapter>> + Send;
 
-    /// This PC's public address, ISP and city, from one HTTPS call to an outside service:
-    /// the app's only external call. Fails with a reason the Technician can read.
+    /// This PC's public address, ISP and city, from one HTTPS call to an outside service.
+    /// Fails with a reason the Technician can read. Outside calls are made only by Tools whose
+    /// subject is the internet itself: this one and the Speed Test operations below.
     fn public_ip(&self) -> impl Future<Output = Result<PublicIp, String>> + Send;
+
+    /// Sends one empty request to the Speed Test Server over `family` and reports how long it
+    /// took. Successive probes reuse the connection the first opened.
+    fn speed_probe(
+        &self,
+        family: AddressFamily,
+    ) -> impl Future<Output = Result<SpeedProbe, SpeedFailure>> + Send;
+
+    /// Downloads `bytes` (at most 25 MB) from the Speed Test Server over `family`, calling
+    /// `received` with the size of each piece as it arrives. Ends when everything has arrived or
+    /// the request fails; dropping the future abandons the transfer.
+    fn speed_download(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        received: &(dyn Fn(u64) + Send + Sync),
+    ) -> impl Future<Output = Result<(), SpeedFailure>> + Send;
+
+    /// Uploads `bytes` (at most 10 MB) to the Speed Test Server over `family`, calling `sent`
+    /// with the size of each piece as it leaves. Ends when everything has been sent and the
+    /// server has answered, or the request fails; dropping the future abandons the transfer.
+    fn speed_upload(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        sent: &(dyn Fn(u64) + Send + Sync),
+    ) -> impl Future<Output = Result<(), SpeedFailure>> + Send;
+
+    /// Whether Ookla's own `speedtest.exe` is installed. Sends nothing.
+    fn ookla_installed(&self) -> impl Future<Output = bool> + Send;
+
+    /// Runs Ookla's `speedtest.exe`, calling `on_line` with each JSON line it prints (`-f jsonl`),
+    /// until it exits. Never accepts Ookla's licence for the Technician. Dropping the future
+    /// ends the program.
+    fn ookla_run(
+        &self,
+        on_line: &(dyn Fn(String) + Send + Sync),
+    ) -> impl Future<Output = Result<(), OoklaFailure>> + Send;
+
+    /// What Windows says the connection internet traffic uses costs. Sends nothing.
+    fn connection_cost(&self) -> impl Future<Output = ConnectionCost> + Send;
 
     /// The address of this PC that traffic to `destination` would leave from. Sends nothing.
     fn source_address(&self, destination: IpAddr) -> Option<IpAddr>;
@@ -382,6 +480,56 @@ impl Network for SystemNetwork {
         tokio::task::spawn_blocking(crate::public_ip::look_up)
             .await
             .unwrap_or_else(|_| Err("the public lookup failed unexpectedly".to_string()))
+    }
+
+    async fn speed_probe(&self, family: AddressFamily) -> Result<SpeedProbe, SpeedFailure> {
+        tokio::task::spawn_blocking(move || crate::speed_client::probe(family))
+            .await
+            .unwrap_or_else(|_| {
+                Err(SpeedFailure::Interrupted {
+                    reason: "the speed probe failed unexpectedly".to_string(),
+                })
+            })
+    }
+
+    async fn speed_download(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        received: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<(), SpeedFailure> {
+        crate::speed_client::download(family, bytes, received).await
+    }
+
+    async fn speed_upload(
+        &self,
+        family: AddressFamily,
+        bytes: u64,
+        sent: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<(), SpeedFailure> {
+        crate::speed_client::upload(family, bytes, sent).await
+    }
+
+    async fn ookla_installed(&self) -> bool {
+        crate::ookla_client::installed().await
+    }
+
+    async fn ookla_run(
+        &self,
+        on_line: &(dyn Fn(String) + Send + Sync),
+    ) -> Result<(), OoklaFailure> {
+        crate::ookla_client::run(on_line).await
+    }
+
+    async fn connection_cost(&self) -> ConnectionCost {
+        #[cfg(windows)]
+        {
+            tokio::task::spawn_blocking(crate::windows_cost::cost)
+                .await
+                .unwrap_or(ConnectionCost::Unknown)
+        }
+        #[cfg(not(windows))]
+        unimplemented!("the connection cost is read on Windows only (ADR 0002)")
     }
 
     fn source_address(&self, destination: IpAddr) -> Option<IpAddr> {
